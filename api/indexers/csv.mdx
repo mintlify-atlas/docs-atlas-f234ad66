@@ -1,0 +1,344 @@
+---
+title: "CSV Indexer"
+description: "Export documents to CSV files"
+---
+
+## Overview
+
+`CSVIndexer` writes processed documents to CSV (Comma-Separated Values) files. It's primarily used for testing pipelines, exporting data for analysis, and creating human-readable output of document processing results.
+
+**Location**: `com.kmwllc.lucille.indexer.CSVIndexer`
+
+## Use Cases
+
+- **Testing**: Verify pipeline transformations by inspecting CSV output
+- **Data Export**: Extract processed data for external analysis tools
+- **Debugging**: Human-readable output for troubleshooting pipelines
+- **Reporting**: Generate reports from document processing results
+- **File-to-File ETL**: Transform data from one file format to CSV
+
+## Configuration
+
+### CSV-Specific Parameters
+
+<ParamField path="csv.path" type="String" required>
+  Output CSV file path. Can be absolute or relative.
+</ParamField>
+
+<ParamField path="csv.columns" type="List<String>" required>
+  Ordered list of document field names to write as CSV columns. Only these fields will be included in the output.
+</ParamField>
+
+<ParamField path="csv.includeHeader" type="Boolean" default={true}>
+  Whether to write a header row with column names when creating/opening the file.
+</ParamField>
+
+<ParamField path="csv.append" type="Boolean" default={false}>
+  Open the CSV file in append mode instead of overwriting. Useful for incremental exports.
+</ParamField>
+
+### Common Indexer Parameters
+
+<ParamField path="indexer.batchSize" type="Integer" default={100}>
+  Number of documents to buffer before writing to disk. Higher values improve throughput.
+</ParamField>
+
+<ParamField path="indexer.ignoreFields" type="List<String>">
+  Fields to exclude from output (not commonly used with CSVIndexer since columns are explicitly specified).
+</ParamField>
+
+<Note>
+CSVIndexer does **not** support `indexer.indexOverrideField`. Each indexer instance writes to a single CSV file.
+</Note>
+
+## Examples
+
+### Basic CSV Export
+
+Export specific fields to a CSV file:
+
+```hocon
+indexer {
+  type: "CSVIndexer"
+  batchSize: 1000
+}
+
+csv {
+  path: "output/results.csv"
+  columns: ["id", "title", "author", "publish_date"]
+  includeHeader: true
+}
+```
+
+Output `results.csv`:
+```csv
+id,title,author,publish_date
+1,First Document,John Doe,2024-01-15
+2,Second Document,Jane Smith,2024-01-16
+```
+
+### File-to-File Transformation
+
+Transform data from one format to CSV:
+
+```hocon
+connectors: [
+  {
+    name: "json-source"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "transform-pipeline"
+    paths: ["input/data.json"]
+    fileOptions {
+      json {
+        filenameField: "source_file"
+      }
+    }
+  }
+]
+
+pipelines: [
+  {
+    name: "transform-pipeline"
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.CopyFields"
+        fieldMapping: {
+          raw_title: "title"
+          raw_author: "author"
+        }
+      },
+      {
+        class: "com.kmwllc.lucille.stage.DeleteFields"
+        fields: ["raw_title", "raw_author"]
+      }
+    ]
+  }
+]
+
+indexer {
+  type: "CSVIndexer"
+}
+
+csv {
+  path: "output/transformed.csv"
+  columns: ["title", "author", "source_file"]
+}
+```
+
+### Append Mode for Incremental Exports
+
+Append new documents to an existing CSV file:
+
+```hocon
+csv {
+  path: "output/cumulative.csv"
+  columns: ["timestamp", "event_type", "user_id", "action"]
+  includeHeader: true
+  append: true
+}
+```
+
+<Note>
+When using append mode, ensure the columns match the existing file's structure. The header will not be written if the file already exists.
+</Note>
+
+### Testing Pipeline Output
+
+Export documents with transformation stages for inspection:
+
+```hocon
+connectors: [
+  {
+    name: "test-data"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "test-pipeline"
+    numDocs: 100
+  }
+]
+
+pipelines: [
+  {
+    name: "test-pipeline"
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        field_name: "product_name"
+        length: 20
+      },
+      {
+        class: "com.kmwllc.lucille.stage.AddRandomInt"
+        field_name: "price"
+        min: 10
+        max: 1000
+      },
+      {
+        class: "com.kmwllc.lucille.stage.AddRandomBoolean"
+        field_name: "in_stock"
+        percent_true: 75
+      }
+    ]
+  }
+]
+
+indexer {
+  type: "CSVIndexer"
+  batchSize: 50
+}
+
+csv {
+  path: "test-output.csv"
+  columns: ["id", "product_name", "price", "in_stock"]
+}
+```
+
+## Behavior
+
+### Field Handling
+
+- **Missing fields**: If a document lacks a specified column field, an empty value is written
+- **Multi-valued fields**: Arrays are written as comma-separated values within quoted strings
+- **Nested fields**: Complex objects are serialized to JSON strings
+- **Field order**: Columns appear in the CSV in the order specified in `csv.columns`
+
+### File Management
+
+- **File creation**: The CSV file is created when the indexer connects
+- **Overwrite mode** (default): Existing files are replaced
+- **Append mode**: New rows are added to existing files without a new header
+- **Buffering**: Documents are buffered according to `batchSize` before flushing to disk
+
+### CSV Format
+
+CSVIndexer uses OpenCSV with these settings:
+- **Separator**: Comma (`,`)
+- **Quote character**: Double quote (`"`)
+- **Escape character**: Backslash (`\`)
+- **Line ending**: System default (Windows: `\r\n`, Unix: `\n`)
+
+## Performance
+
+### Optimization Tips
+
+1. **Increase batch size**: Higher `batchSize` reduces disk I/O
+   ```hocon
+   indexer.batchSize: 5000  # vs default 100
+   ```
+
+2. **Limit columns**: Only export fields you need
+   ```hocon
+   csv.columns: ["id", "title"]  # vs all fields
+   ```
+
+3. **Use SSD storage**: CSV writing benefits from fast sequential write speeds
+
+4. **Avoid nested objects**: Flatten complex fields before indexing for better performance
+
+### Throughput
+
+Typical performance characteristics:
+- **Simple documents** (5-10 fields): 10,000-50,000 docs/sec
+- **Complex documents** (50+ fields): 1,000-5,000 docs/sec
+- Bottleneck is usually disk I/O, not CPU
+
+## Common Patterns
+
+### Data Quality Validation
+
+Export data for manual inspection:
+
+```hocon
+csv {
+  path: "validation/quality-check.csv"
+  columns: [
+    "id",
+    "original_title",
+    "cleaned_title",
+    "validation_status"
+  ]
+}
+```
+
+### Reporting Pipeline Results
+
+Generate summary reports:
+
+```hocon
+pipelines: [
+  {
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.ComputeFieldSize"
+        source: "content"
+        dest: "content_length"
+      },
+      {
+        class: "com.kmwllc.lucille.stage.DetectLanguage"
+        source: "content"
+        dest: "language"
+      }
+    ]
+  }
+]
+
+csv {
+  path: "reports/content-analysis.csv"
+  columns: ["id", "content_length", "language", "source_file"]
+}
+```
+
+### A/B Testing Pipeline Configurations
+
+Compare pipeline results side-by-side:
+
+```hocon
+# Configuration A
+csv {
+  path: "comparison/pipeline-a.csv"
+  columns: ["id", "result_field"]
+}
+
+# Configuration B
+csv {
+  path: "comparison/pipeline-b.csv"
+  columns: ["id", "result_field"]
+}
+```
+
+## Troubleshooting
+
+### File Permission Errors
+
+If you encounter "Permission denied" errors:
+- Ensure the output directory exists and is writable
+- Check file permissions if appending to existing files
+- Use absolute paths to avoid working directory issues
+
+### Memory Issues with Large Files
+
+CSVIndexer buffers documents in memory:
+- Reduce `indexer.batchSize` if running out of memory
+- Process in smaller batches by splitting source data
+- Monitor heap usage with JVM flags
+
+### Column Order Mismatches
+
+When appending to existing files:
+- Ensure `csv.columns` exactly matches the existing file structure
+- Consider using separate output files for different schemas
+- Validate existing CSV structure before running in append mode
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SequenceConnector" icon="list-ol" href="/api/connectors/sequence-connector">
+    Generate test documents for CSV export
+  </Card>
+  
+  <Card title="Document Generation Guide" icon="flask" href="/guides/document-generation">
+    Create realistic test data with random stages
+  </Card>
+  
+  <Card title="Solr Indexer" icon="magnifying-glass" href="/api/indexers/solr">
+    Index to Apache Solr for production search
+  </Card>
+</CardGroup>

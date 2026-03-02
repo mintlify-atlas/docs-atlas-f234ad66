@@ -1,0 +1,214 @@
+---
+title: "SequenceConnector"
+description: "Generate a sequence of empty documents for testing and development"
+---
+
+## Overview
+
+`SequenceConnector` generates a configurable number of empty Documents with sequential numeric IDs. This connector is primarily used for testing pipelines, load testing, and development scenarios where you need a controlled number of documents without external data sources.
+
+**Location**: `com.kmwllc.lucille.connector.SequenceConnector`
+
+## Use Cases
+
+- **Pipeline testing**: Verify stage transformations with known document counts
+- **Load testing**: Generate large volumes of documents to test throughput
+- **Development**: Test pipeline configurations without external dependencies
+- **Benchmarking**: Measure stage performance with controlled inputs
+
+## Configuration Parameters
+
+<ParamField path="numDocs" type="Long" required>
+  Total number of Documents to create.
+</ParamField>
+
+<ParamField path="startWith" type="Integer" default={0}>
+  First ID value to use. Document IDs will be sequential starting from this value.
+</ParamField>
+
+<ParamField path="name" type="String" required>
+  The name of the connector instance.
+</ParamField>
+
+<ParamField path="class" type="String" required>
+  Must be `com.kmwllc.lucille.connector.SequenceConnector`.
+</ParamField>
+
+<ParamField path="pipeline" type="String">
+  The name of the pipeline to send documents to.
+</ParamField>
+
+<ParamField path="docIdPrefix" type="String" default="">
+  Prefix to add to all document IDs.
+</ParamField>
+
+## Examples
+
+### Basic Usage
+
+Generate 1000 empty documents with IDs 0-999:
+
+```hocon
+connectors: [
+  {
+    name: "sequence-test"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "test-pipeline"
+    numDocs: 1000
+  }
+]
+```
+
+### Custom Start Value
+
+Generate documents with IDs starting from 5000:
+
+```hocon
+connectors: [
+  {
+    name: "sequence-test"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "test-pipeline"
+    numDocs: 500
+    startWith: 5000
+  }
+]
+```
+
+Document IDs will be: 5000, 5001, 5002, ..., 5499
+
+### With Document ID Prefix
+
+Add a namespace prefix to all document IDs:
+
+```hocon
+connectors: [
+  {
+    name: "sequence-test"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "test-pipeline"
+    docIdPrefix: "test-"
+    numDocs: 100
+    startWith: 1
+  }
+]
+```
+
+Document IDs will be: test-1, test-2, test-3, ..., test-100
+
+### Load Testing Pipeline
+
+Test a pipeline with 1 million documents:
+
+```hocon
+connectors: [
+  {
+    name: "load-test"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "performance-test"
+    numDocs: 1000000
+  }
+]
+
+pipelines: [
+  {
+    name: "performance-test"
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        field_name: "title"
+        length: 50
+      },
+      {
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        field_name: "content"
+        length: 1000
+      }
+    ]
+  }
+]
+```
+
+## Document Structure
+
+Documents created by SequenceConnector contain only:
+- Document ID (sequential number with optional prefix)
+- Standard metadata fields (run_id, connector_name)
+
+All other fields must be added by pipeline stages.
+
+## Performance
+
+SequenceConnector is extremely fast since it doesn't read from external sources:
+- Can generate millions of documents per second
+- Zero I/O overhead
+- Ideal baseline for benchmarking stage performance
+
+## Common Patterns
+
+### Testing Stage Transformations
+
+Combine with random data stages to test transformations:
+
+```hocon
+connectors: [
+  {
+    name: "test-data"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "transformation-test"
+    numDocs: 100
+  }
+]
+
+pipelines: [
+  {
+    name: "transformation-test"
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        field_name: "raw_text"
+      },
+      {
+        class: "com.kmwllc.lucille.stage.ApplyRegex"
+        source: "raw_text"
+        dest: "cleaned_text"
+        pattern: "[^a-zA-Z0-9\\s]"
+        replacement: ""
+      }
+    ]
+  }
+]
+```
+
+### Comparing Pipeline Performance
+
+Test multiple pipelines with identical document loads:
+
+```hocon
+connectors: [
+  {
+    name: "pipeline-a-test"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "pipeline-a"
+    numDocs: 10000
+  },
+  {
+    name: "pipeline-b-test"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "pipeline-b"
+    numDocs: 10000
+  }
+]
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Document Generation Guide" icon="flask" href="/guides/document-generation">
+    Generate realistic test data with random stages
+  </Card>
+  
+  <Card title="FileConnector" icon="folder" href="/api/connectors/file-connector">
+    Process real files from local or cloud storage
+  </Card>
+</CardGroup>

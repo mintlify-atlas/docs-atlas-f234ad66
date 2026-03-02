@@ -83,7 +83,9 @@
               "api/connectors/database-connector",
               "api/connectors/kafka-connector",
               "api/connectors/solr-connector",
-              "api/connectors/rss-connector"
+              "api/connectors/rss-connector",
+              "api/connectors/sequence-connector",
+              "api/connectors/parquet-connector"
             ]
           },
           {
@@ -102,7 +104,8 @@
               "api/indexers/overview",
               "api/indexers/solr",
               "api/indexers/opensearch",
-              "api/indexers/elasticsearch"
+              "api/indexers/elasticsearch",
+              "api/indexers/csv"
             ]
           },
           {

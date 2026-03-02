@@ -154,7 +154,26 @@ Lucille provides several built-in connector implementations:
   <Card title="RSSConnector" icon="rss" href="/api/connectors/rss-connector">
     Read items from RSS/Atom feeds
   </Card>
+  
+  <Card title="SequenceConnector" icon="list-ol" href="/api/connectors/sequence-connector">
+    Generate empty documents for testing
+  </Card>
 </CardGroup>
+
+### Plugin Connectors
+
+<Card title="ParquetConnector" icon="table" href="/api/connectors/parquet-connector">
+  Read Parquet files from local or cloud storage
+</Card>
+
+### Deprecated Connectors
+
+<Note>
+The following connectors are deprecated. Use **FileConnector** with appropriate FileHandlers instead:
+- CSVConnector (use FileConnector with CSVFileHandler)
+- JSONConnector (use FileConnector with JSONFileHandler)
+- XMLConnector (use FileConnector with XMLFileHandler)
+</Note>
 
 ## Document ID Management
 

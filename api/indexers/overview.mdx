@@ -49,6 +49,8 @@ All indexers support these common configuration parameters:
 
 ## Available Indexers
 
+### Search Engine Indexers
+
 <CardGroup cols={2}>
   <Card title="Solr" icon="magnifying-glass" href="/api/indexers/solr">
     Index to Apache Solr with support for SolrCloud
@@ -59,6 +61,11 @@ All indexers support these common configuration parameters:
   <Card title="Elasticsearch" icon="search" href="/api/indexers/elasticsearch">
     Index to Elasticsearch with join support
   </Card>
+</CardGroup>
+
+### Vector Database Indexers
+
+<CardGroup cols={2}>
   <Card title="Pinecone" icon="brain-circuit" href="/api/plugins/pinecone">
     Vector database indexer for embeddings
   </Card>
@@ -66,6 +73,12 @@ All indexers support these common configuration parameters:
     Vector search with object-based schema
   </Card>
 </CardGroup>
+
+### Utility Indexers
+
+<Card title="CSV Indexer" icon="file-csv" href="/api/indexers/csv">
+  Export documents to CSV files for testing and data export
+</Card>
 
 ## Deletion Handling
 

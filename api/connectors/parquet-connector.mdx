@@ -1,0 +1,290 @@
+---
+title: "ParquetConnector"
+description: "Read Parquet files from local or cloud storage"
+---
+
+## Overview
+
+`ParquetConnector` reads Parquet columnar data files from local filesystems, S3, or other Hadoop-compatible storage systems. It's optimized for processing large datasets efficiently, making it ideal for data lakes, analytics pipelines, and vector search use cases.
+
+**Location**: `com.kmwllc.lucille.parquet.connector.ParquetConnector`
+
+<Note>
+ParquetConnector is a **plugin** connector. Add the `lucille-parquet` dependency to your project to use it.
+</Note>
+
+## Maven Dependency
+
+```xml
+<dependency>
+  <groupId>com.kmwllc</groupId>
+  <artifactId>lucille-parquet</artifactId>
+  <version>${lucille.version}</version>
+</dependency>
+```
+
+## Configuration Parameters
+
+<ParamField path="pathToStorage" type="String" required>
+  The path to traverse for `.parquet` files. Can be local filesystem path or S3 URI (e.g., `s3://bucket/path/`).
+</ParamField>
+
+<ParamField path="idField" type="String" required>
+  Name of a field in the Parquet schema to use as the Document ID. Must exist in all files processed, or an exception will be thrown.
+</ParamField>
+
+<ParamField path="fsUri" type="String" required>
+  URI for the filesystem to use. Examples:
+  - Local: `file:///`
+  - S3: `s3a://`
+</ParamField>
+
+<ParamField path="s3Key" type="String">
+  AWS S3 access key ID. Required only when accessing S3.
+</ParamField>
+
+<ParamField path="s3Secret" type="String">
+  AWS S3 secret access key. Required only when accessing S3.
+</ParamField>
+
+<ParamField path="limit" type="Long">
+  Maximum number of Documents to publish. Defaults to no limit (process all rows).
+</ParamField>
+
+<ParamField path="start" type="Long" default={0}>
+  Number of rows to skip from the beginning of each Parquet file.
+</ParamField>
+
+<ParamField path="name" type="String" required>
+  The name of the connector instance.
+</ParamField>
+
+<ParamField path="class" type="String" required>
+  Must be `com.kmwllc.lucille.parquet.connector.ParquetConnector`.
+</ParamField>
+
+<ParamField path="pipeline" type="String">
+  The name of the pipeline to send documents to.
+</ParamField>
+
+## Examples
+
+### Local Parquet Files
+
+Read Parquet files from a local directory:
+
+```hocon
+connectors: [
+  {
+    name: "local-parquet"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pipeline: "parquet-pipeline"
+    
+    pathToStorage: "/data/parquet/"
+    idField: "id"
+    fsUri: "file:///"
+  }
+]
+```
+
+### S3 Parquet Files
+
+Read Parquet files from S3:
+
+```hocon
+connectors: [
+  {
+    name: "s3-parquet"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pipeline: "parquet-pipeline"
+    
+    pathToStorage: "s3://my-bucket/data/parquet/"
+    idField: "record_id"
+    fsUri: "s3a://"
+    
+    s3Key: ${?AWS_ACCESS_KEY_ID}
+    s3Secret: ${?AWS_SECRET_ACCESS_KEY}
+  }
+]
+```
+
+### With Pagination
+
+Process a subset of rows using start and limit:
+
+```hocon
+connectors: [
+  {
+    name: "parquet-batch"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pipeline: "parquet-pipeline"
+    
+    pathToStorage: "/data/large-dataset.parquet"
+    idField: "id"
+    fsUri: "file:///"
+    
+    start: 10000
+    limit: 5000
+  }
+]
+```
+
+<Warning>
+When using pagination (`start` / `limit`), it's recommended to use separate connector instances for each Parquet file to ensure predictable results.
+</Warning>
+
+### Vector Search Ingestion
+
+From the [Vector Search Guide](/guides/vector-search):
+
+```hocon
+connectors: [
+  {
+    name: "parquet-embeddings"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pipeline: "vector-pipeline"
+    
+    pathToStorage: "s3://datasets/openai-10M-embeddings/"
+    idField: "id"
+    fsUri: "s3a://"
+    
+    s3Key: ${?AWS_ACCESS_KEY_ID}
+    s3Secret: ${?AWS_SECRET_ACCESS_KEY}
+    
+    limit: 100000
+  }
+]
+
+pipelines: [
+  {
+    name: "vector-pipeline"
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.RenameFields"
+        fieldMapping: {
+          embedding: "vector"
+        }
+      }
+    ]
+  }
+]
+
+pinecone {
+  apiKey: ${?PINECONE_API_KEY}
+  environment: "us-west1-gcp"
+  indexName: "embeddings-index"
+}
+```
+
+## Behavior
+
+### File Discovery
+
+ParquetConnector recursively traverses the `pathToStorage` directory and processes all `.parquet` files found.
+
+### Schema Mapping
+
+Each column in the Parquet file becomes a field in the Lucille Document:
+- Column names map directly to field names
+- Parquet data types are converted to appropriate Java types
+- Nested structures are preserved
+
+### ID Field Requirement
+
+The `idField` parameter must reference a column that exists in **all** Parquet files being processed. If a file lacks this column, the connector will throw an exception.
+
+## Performance
+
+ParquetConnector leverages Parquet's columnar format for efficient data access:
+- **Columnar storage**: Only read columns needed by your pipeline
+- **Compression**: Parquet's built-in compression reduces I/O
+- **Predicate pushdown**: Filter rows efficiently at the storage layer
+
+## S3 Configuration
+
+When accessing S3, the connector uses Hadoop's S3A filesystem:
+
+```hocon
+s3Key: "AKIAIOSFODNN7EXAMPLE"
+s3Secret: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+fsUri: "s3a://"
+```
+
+The connector automatically configures:
+- Path-style access
+- INT96 timestamp handling for Avro compatibility
+
+## Common Patterns
+
+### Processing Large Datasets
+
+For datasets too large to process in one run, use multiple connectors with pagination:
+
+```hocon
+connectors: [
+  {
+    name: "batch-1"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pathToStorage: "s3://data/large.parquet"
+    idField: "id"
+    fsUri: "s3a://"
+    start: 0
+    limit: 1000000
+  },
+  {
+    name: "batch-2"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pathToStorage: "s3://data/large.parquet"
+    idField: "id"
+    fsUri: "s3a://"
+    start: 1000000
+    limit: 1000000
+  }
+]
+```
+
+### Data Lake Ingestion
+
+Process all Parquet files in a data lake partition:
+
+```hocon
+connectors: [
+  {
+    name: "datalake-ingest"
+    class: "com.kmwllc.lucille.parquet.connector.ParquetConnector"
+    pipeline: "analytics-pipeline"
+    
+    pathToStorage: "s3://datalake/events/year=2024/month=01/"
+    idField: "event_id"
+    fsUri: "s3a://"
+  }
+]
+```
+
+## Troubleshooting
+
+### Schema Evolution
+
+If Parquet files have different schemas, ensure the `idField` exists in all files. Consider using schema evolution best practices:
+- Keep ID field consistent across all files
+- Add new columns with default values
+- Avoid removing or renaming the ID column
+
+### Memory Usage
+
+Large Parquet files can consume significant memory. Monitor heap usage and adjust:
+- JVM heap size (`-Xmx`)
+- Use `limit` to process in batches
+- Enable Parquet page-level filtering if supported
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Vector Search Guide" icon="brain" href="/guides/vector-search">
+    Complete tutorial using ParquetConnector for vector embeddings
+  </Card>
+  
+  <Card title="FileConnector" icon="folder" href="/api/connectors/file-connector">
+    Process other file formats with FileConnector
+  </Card>
+</CardGroup>
