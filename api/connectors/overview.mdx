@@ -1,0 +1,189 @@
+---
+title: "Connectors Overview"
+description: "Understanding the Connector interface and lifecycle in Lucille Search"
+---
+
+## Overview
+
+Connectors in Lucille Search are responsible for reading data from external sources and generating Documents to be processed by pipelines. Each connector connects to a specific data source, extracts data, and publishes Documents for downstream processing.
+
+## Connector Interface
+
+All connectors implement the `Connector` interface, which defines the contract for data ingestion:
+
+```java
+package com.kmwllc.lucille.core;
+
+public interface Connector extends AutoCloseable {
+  String getName();
+  String getPipelineName();
+  boolean requiresCollapsingPublisher();
+  void preExecute(String runId) throws ConnectorException;
+  void execute(Publisher publisher) throws ConnectorException;
+  void postExecute(String runId) throws ConnectorException;
+  Spec getSpec();
+  String getMessage();
+}
+```
+
+**Location**: `com.kmwllc.lucille.core.Connector`
+
+## Connector Lifecycle
+
+During each run, connectors follow a strict lifecycle:
+
+1. **preExecute(runId)** - Always called first for setup operations
+2. **execute(publisher)** - Called if preExecute() succeeds, performs main data ingestion
+3. **postExecute(runId)** - Called if preExecute() and execute() succeed
+4. **close()** - Always called for cleanup, even if errors occur
+
+<Note>
+A new Connector instance is created for each run.
+</Note>
+
+## AbstractConnector Base Class
+
+Most connectors extend `AbstractConnector`, which provides common functionality:
+
+```java
+package com.kmwllc.lucille.connector;
+
+public abstract class AbstractConnector implements Connector {
+  protected final Config config;
+  
+  public AbstractConnector(Config config);
+  public String getName();
+  public String getPipelineName();
+  public boolean requiresCollapsingPublisher();
+  public String getDocIdPrefix();
+  public String createDocId(String id);
+  public void preExecute(String runId) throws ConnectorException;
+  public void postExecute(String runId) throws ConnectorException;
+  public void close() throws ConnectorException;
+}
+```
+
+**Location**: `com.kmwllc.lucille.connector.AbstractConnector`
+
+### Base Configuration Parameters
+
+All connectors that extend `AbstractConnector` support these configuration parameters:
+
+<ParamField path="name" type="String" required>
+  The name of the connector. Connector names should be unique within your Lucille configuration.
+</ParamField>
+
+<ParamField path="class" type="String" required>
+  The fully qualified class name of the connector implementation.
+</ParamField>
+
+<ParamField path="pipeline" type="String">
+  The name of the pipeline to feed Documents to. Defaults to null (no pipeline).
+</ParamField>
+
+<ParamField path="docIdPrefix" type="String">
+  A string to prepend to Document IDs originating from this connector. Defaults to an empty string.
+</ParamField>
+
+<ParamField path="collapse" type="Boolean">
+  Whether this connector is "collapsing". A collapsing Publisher combines Documents published in sequence that share the same ID into a single document with multi-valued fields. Defaults to false.
+</ParamField>
+
+## Specification and Validation
+
+All connector implementations must declare a `public static Spec SPEC` that defines the connector's configuration properties. This Spec is accessed reflectively in the AbstractConnector constructor, and the provided Config is validated against it.
+
+<Warning>
+Connectors will not function without declaring a `public static Spec SPEC`.
+</Warning>
+
+### Example Spec Declaration
+
+```java
+public static final Spec SPEC = SpecBuilder.connector()
+    .requiredString("driver", "connectionString", "jdbcUser", "jdbcPassword", "sql", "idField")
+    .optionalString("preSQL", "postSQL")
+    .optionalNumber("fetchSize", "connectionRetries", "connectionRetryPause")
+    .build();
+```
+
+## Creating Connectors from Configuration
+
+Connectors are instantiated reflectively using the static `fromConfig()` method:
+
+```java
+List<Connector> connectors = Connector.fromConfig(config);
+```
+
+Connector constructors must accept a single `Config` parameter.
+
+## Publishing Documents
+
+Connectors receive a `Publisher` instance in their `execute()` method. Use this to publish documents:
+
+```java
+@Override
+public void execute(Publisher publisher) throws ConnectorException {
+  Document doc = Document.create("doc-id-123");
+  doc.setField("title", "Example Document");
+  publisher.publish(doc);
+}
+```
+
+## Built-in Connectors
+
+Lucille provides several built-in connector implementations:
+
+<CardGroup cols={2}>
+  <Card title="FileConnector" icon="folder" href="/api/connectors/file-connector">
+    Traverse local and cloud storage (S3, GCP, Azure)
+  </Card>
+  
+  <Card title="DatabaseConnector" icon="database" href="/api/connectors/database-connector">
+    Query relational databases via JDBC
+  </Card>
+  
+  <Card title="KafkaConnector" icon="stream" href="/api/connectors/kafka-connector">
+    Read messages from Kafka topics
+  </Card>
+  
+  <Card title="SolrConnector" icon="magnifying-glass" href="/api/connectors/solr-connector">
+    Query and index Solr collections
+  </Card>
+  
+  <Card title="RSSConnector" icon="rss" href="/api/connectors/rss-connector">
+    Read items from RSS/Atom feeds
+  </Card>
+</CardGroup>
+
+## Document ID Management
+
+The `createDocId(String id)` method adds the configured `docIdPrefix` to IDs:
+
+```java
+String fullId = createDocId("123"); // Returns "prefix123" if docIdPrefix="prefix"
+```
+
+This helps namespace documents from different sources.
+
+## Error Handling
+
+Connectors should throw `ConnectorException` when errors occur:
+
+```java
+throw new ConnectorException("Error connecting to database", e);
+```
+
+The framework ensures `close()` is always called for cleanup, even if exceptions are thrown.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="FileConnector Reference" icon="folder" href="/api/connectors/file-connector">
+    Complete reference for file and cloud storage ingestion
+  </Card>
+  
+  <Card title="DatabaseConnector Reference" icon="database" href="/api/connectors/database-connector">
+    JDBC-based database querying and ingestion
+  </Card>
+</CardGroup>

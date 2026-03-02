@@ -1,0 +1,422 @@
+---
+title: Installation
+description: Install Lucille and set up your development environment
+---
+
+# Installation
+
+This guide will walk you through installing Lucille and setting up your development environment.
+
+## Prerequisites
+
+Before installing Lucille, make sure you have the following prerequisites installed:
+
+### Required Software
+
+<CardGroup cols={2}>
+  <Card title="Java 17+" icon="mug-hot">
+    Lucille requires Java Development Kit (JDK) version 17 or later
+  </Card>
+  <Card title="Maven 3.6+" icon="box">
+    Apache Maven is required to build Lucille from source
+  </Card>
+</CardGroup>
+
+<Warning>
+  Lucille will **not** work with Java 8, 11, or earlier versions. You must use Java 17 or later.
+</Warning>
+
+### Verify Prerequisites
+
+Check that you have the required software installed:
+
+<CodeGroup>
+```bash Java Version
+java -version
+# Expected output:
+# openjdk version "17.0.x" or higher
+```
+
+```bash Maven Version
+mvn -version
+# Expected output:
+# Apache Maven 3.6.x or higher
+# Maven home: /usr/share/maven
+# Java version: 17.0.x
+```
+</CodeGroup>
+
+## Installing Java 17
+
+If you don't have Java 17 installed, follow the instructions for your operating system:
+
+<Accordion title="macOS">
+  Using Homebrew:
+  ```bash
+  brew install openjdk@17
+  ```
+  
+  Then set `JAVA_HOME`:
+  ```bash
+  export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+  ```
+  
+  Add this to your `~/.zshrc` or `~/.bash_profile` to make it permanent.
+</Accordion>
+
+<Accordion title="Linux (Ubuntu/Debian)">
+  ```bash
+  sudo apt update
+  sudo apt install openjdk-17-jdk
+  ```
+  
+  Set `JAVA_HOME`:
+  ```bash
+  export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+  export PATH=$JAVA_HOME/bin:$PATH
+  ```
+  
+  Add to `~/.bashrc` to make permanent.
+</Accordion>
+
+<Accordion title="Linux (RHEL/CentOS)">
+  ```bash
+  sudo yum install java-17-openjdk-devel
+  ```
+  
+  Set `JAVA_HOME`:
+  ```bash
+  export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+  export PATH=$JAVA_HOME/bin:$PATH
+  ```
+</Accordion>
+
+<Accordion title="Windows">
+  1. Download the JDK 17 installer from [Oracle](https://www.oracle.com/java/technologies/downloads/#java17) or [Adoptium](https://adoptium.net/)
+  2. Run the installer
+  3. Set `JAVA_HOME` environment variable:
+     - Open System Properties → Environment Variables
+     - Add `JAVA_HOME` pointing to JDK installation directory (e.g., `C:\Program Files\Java\jdk-17`)
+     - Add `%JAVA_HOME%\bin` to your `PATH`
+</Accordion>
+
+## Installing Maven
+
+If you don't have Maven installed:
+
+<Accordion title="macOS">
+  Using Homebrew:
+  ```bash
+  brew install maven
+  ```
+</Accordion>
+
+<Accordion title="Linux">
+  Ubuntu/Debian:
+  ```bash
+  sudo apt update
+  sudo apt install maven
+  ```
+  
+  RHEL/CentOS:
+  ```bash
+  sudo yum install maven
+  ```
+</Accordion>
+
+<Accordion title="Windows">
+  1. Download Maven from [Apache Maven](https://maven.apache.org/download.cgi)
+  2. Extract the archive to a directory (e.g., `C:\Program Files\Apache\maven`)
+  3. Add Maven's `bin` directory to your `PATH` environment variable
+</Accordion>
+
+## Installing Lucille
+
+Now that you have the prerequisites, let's install Lucille:
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Lucille repository from GitHub:
+    
+    ```bash
+    git clone https://github.com/kmwtechnology/lucille.git
+    cd lucille
+    ```
+  </Step>
+
+  <Step title="Build Lucille">
+    Build Lucille and all its modules using Maven:
+    
+    ```bash
+    mvn clean install
+    ```
+    
+    This command will:
+    - Compile all Java source code
+    - Run unit tests
+    - Package JARs for all modules
+    - Install artifacts to your local Maven repository (`~/.m2/repository`)
+    
+    <Note>
+      The first build may take 5-10 minutes as Maven downloads all dependencies. Subsequent builds will be much faster.
+    </Note>
+  </Step>
+
+  <Step title="Verify the build">
+    If the build is successful, you should see:
+    
+    ```
+    [INFO] ------------------------------------------------------------------------
+    [INFO] Reactor Summary:
+    [INFO] ------------------------------------------------------------------------
+    [INFO] Lucille Parent ..................................... SUCCESS
+    [INFO] Lucille Core ....................................... SUCCESS
+    [INFO] Lucille Plugins .................................... SUCCESS
+    [INFO] Lucille Examples ................................... SUCCESS
+    [INFO] ------------------------------------------------------------------------
+    [INFO] BUILD SUCCESS
+    [INFO] ------------------------------------------------------------------------
+    ```
+  </Step>
+</Steps>
+
+## Project Structure
+
+After installation, you'll find the following directory structure:
+
+```
+lucille/
+├── lucille-core/          # Core functionality: Document, Pipeline, Stage, etc.
+├── lucille-plugins/       # Optional plugins for specific connectors/indexers
+│   ├── lucille-pinecone/  # Pinecone vector database support
+│   ├── lucille-weaviate/  # Weaviate vector database support
+│   ├── lucille-tika/      # Apache Tika text extraction
+│   ├── lucille-ocr/       # OCR support
+│   ├── lucille-video/     # Video file handling
+│   └── lucille-api/       # REST API for Lucille
+├── lucille-examples/      # Working examples to get you started
+│   ├── lucille-simple-csv-solr-example/
+│   ├── lucille-opensearch-ingest-example/
+│   ├── lucille-vector-ingest-example/
+│   ├── lucille-distributed-example/
+│   └── ...
+└── pom.xml               # Maven project configuration
+```
+
+<Tip>
+  The `lucille-examples/` directory contains ready-to-run examples demonstrating various Lucille features. These are the best place to start learning.
+</Tip>
+
+## Verify Your Installation
+
+Let's verify that Lucille is properly installed by running a simple example:
+
+<Steps>
+  <Step title="Navigate to an example">
+    ```bash
+    cd lucille-examples/lucille-simple-csv-solr-example
+    ```
+  </Step>
+
+  <Step title="Build the example">
+    ```bash
+    mvn clean install
+    ```
+  </Step>
+
+  <Step title="Validate the configuration">
+    Run Lucille in validation mode to check the configuration:
+    
+    ```bash
+    java -Dconfig.file=conf/simple-csv-solr-example.conf \
+      -cp 'target/lib/*' \
+      com.kmwllc.lucille.core.Runner \
+      -validate
+    ```
+    
+    You should see:
+    ```
+    INFO  Pipeline Configuration is valid.
+    INFO  Connector Configuration is valid.
+    INFO  Indexer Configuration is valid.
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The `-validate` flag checks your configuration without running the connector. This is useful for catching errors before starting a long-running job.
+</Note>
+
+## Optional: Install Search Engines
+
+Depending on your use case, you may want to install one or more search engines:
+
+### Apache Solr
+
+<Accordion title="Install Solr">
+  1. Download Solr from [Apache Solr Downloads](https://solr.apache.org/downloads.html)
+  2. Extract the archive:
+     ```bash
+     tar -xzf solr-9.4.0.tgz
+     cd solr-9.4.0
+     ```
+  3. Start Solr:
+     ```bash
+     bin/solr start
+     ```
+  4. Create a collection:
+     ```bash
+     bin/solr create -c quickstart
+     ```
+  5. Verify: Open http://localhost:8983/solr in your browser
+</Accordion>
+
+### Elasticsearch
+
+<Accordion title="Install Elasticsearch">
+  1. Download Elasticsearch from [Elastic Downloads](https://www.elastic.co/downloads/elasticsearch)
+  2. Extract and start:
+     ```bash
+     tar -xzf elasticsearch-8.11.0.tar.gz
+     cd elasticsearch-8.11.0
+     bin/elasticsearch
+     ```
+  3. Verify: `curl http://localhost:9200`
+  
+  Or use Docker:
+  ```bash
+  docker run -d -p 9200:9200 -e "discovery.type=single-node" elasticsearch:8.11.0
+  ```
+</Accordion>
+
+### OpenSearch
+
+<Accordion title="Install OpenSearch">
+  1. Download from [OpenSearch Downloads](https://opensearch.org/downloads.html)
+  2. Extract and start:
+     ```bash
+     tar -xzf opensearch-2.11.0.tar.gz
+     cd opensearch-2.11.0
+     ./bin/opensearch
+     ```
+  
+  Or use Docker:
+  ```bash
+  docker run -d -p 9200:9200 -p 9600:9600 \
+    -e "discovery.type=single-node" \
+    opensearchproject/opensearch:2.11.0
+  ```
+</Accordion>
+
+## Configuration Tips
+
+### Setting Memory Limits
+
+For large datasets, you may need to increase Java heap size:
+
+```bash
+java -Xmx4g -Xms2g -Dconfig.file=myconfig.conf \
+  -cp 'target/lib/*' \
+  com.kmwllc.lucille.core.Runner
+```
+
+- `-Xmx4g`: Maximum heap size of 4 GB
+- `-Xms2g`: Initial heap size of 2 GB
+
+### Logging Configuration
+
+Lucille uses SLF4J with Logback for logging. You can customize logging by creating a `logback.xml` file:
+
+```xml logback.xml
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  
+  <root level="INFO">
+    <appender-ref ref="STDOUT" />
+  </root>
+  
+  <!-- Set Lucille to DEBUG level -->
+  <logger name="com.kmwllc.lucille" level="DEBUG" />
+</configuration>
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Maven build fails with 'diamond operator not supported'">
+    This means you're using Java 8 or earlier. Lucille requires Java 17+:
+    
+    ```bash
+    # Check your Java version
+    java -version
+    javac -version
+    
+    # Make sure both show version 17 or higher
+    ```
+    
+    If you have multiple Java versions, set `JAVA_HOME` to point to Java 17.
+  </Accordion>
+
+  <Accordion title="Maven build fails with 'peer not authenticated' or SSL errors">
+    This may be a corporate proxy or firewall issue. Try:
+    
+    ```bash
+    # Use Maven central over HTTP (less secure, only for testing)
+    mvn clean install -DskipTests
+    ```
+    
+    Or configure Maven to use your corporate proxy in `~/.m2/settings.xml`.
+  </Accordion>
+
+  <Accordion title="Tests fail during build">
+    Some tests require external services. You can skip tests during installation:
+    
+    ```bash
+    mvn clean install -DskipTests
+    ```
+    
+    <Warning>
+      Only skip tests if you're having installation issues. Running tests ensures your installation is working correctly.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="OutOfMemoryError during build">
+    Increase Maven's memory:
+    
+    ```bash
+    export MAVEN_OPTS="-Xmx2g"
+    mvn clean install
+    ```
+  </Accordion>
+
+  <Accordion title="Cannot find 'lucille-core' dependency">
+    Make sure you ran `mvn clean install` from the top-level `lucille/` directory. This installs all modules to your local Maven repository.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that you have Lucille installed, you're ready to start building ETL pipelines:
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Follow the quickstart guide to run your first Lucille example
+  </Card>
+  <Card title="Connectors" icon="plug">
+    Learn about the available data source connectors
+  </Card>
+  <Card title="Pipelines" icon="filter">
+    Discover the transformation stages you can use in pipelines
+  </Card>
+  <Card title="Indexers" icon="database">
+    Configure indexers for different search engines and databases
+  </Card>
+</CardGroup>
+
+<Tip>
+  Join the Lucille community on GitHub to ask questions, report issues, and contribute: [github.com/kmwtechnology/lucille](https://github.com/kmwtechnology/lucille)
+</Tip>

@@ -1,122 +1,122 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Lucille",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#2563eb",
+    "light": "#60a5fa",
+    "dark": "#1e40af"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/kmwtechnology/lucille"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/kmwtechnology/lucille"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/architecture",
+              "concepts/connectors",
+              "concepts/pipelines",
+              "concepts/stages",
+              "concepts/indexers",
+              "concepts/documents"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Configuration",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "configuration/overview",
+              "configuration/connectors",
+              "configuration/pipelines",
+              "configuration/indexers",
+              "configuration/kafka"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Deployment",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "deployment/local-mode",
+              "deployment/distributed-mode",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/csv-to-solr",
+              "guides/s3-ingestion",
+              "guides/vector-search",
+              "guides/document-generation",
+              "guides/custom-stages"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Connectors",
             "pages": [
-              "api-reference/introduction"
+              "api/connectors/overview",
+              "api/connectors/file-connector",
+              "api/connectors/database-connector",
+              "api/connectors/kafka-connector",
+              "api/connectors/solr-connector",
+              "api/connectors/rss-connector"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Stages",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/stages/overview",
+              "api/stages/text-processing",
+              "api/stages/data-transformation",
+              "api/stages/enrichment",
+              "api/stages/ai-ml"
+            ]
+          },
+          {
+            "group": "Indexers",
+            "pages": [
+              "api/indexers/overview",
+              "api/indexers/solr",
+              "api/indexers/opensearch",
+              "api/indexers/elasticsearch"
+            ]
+          },
+          {
+            "group": "Plugins",
+            "pages": [
+              "api/plugins/overview",
+              "api/plugins/tika",
+              "api/plugins/ocr",
+              "api/plugins/pinecone",
+              "api/plugins/weaviate"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

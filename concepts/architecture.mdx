@@ -1,0 +1,274 @@
+---
+title: Architecture
+description: Understanding Lucille's system design, component interaction, and deployment modes
+---
+
+## Overview
+
+Lucille is a production-grade Search ETL framework designed to extract data from source systems, transform it through configurable pipelines, and load it into search engines. The architecture is built around a clear separation of concerns with four primary components working together to process documents from source to destination.
+
+<Info>
+**Search ETL** is a category of ETL where data must be extracted, transformed, and loaded into a search engine. Lucille speaks the language of search, representing data as search-engine-ready Documents with support for enrichment, batching, routing, and versioning.
+</Info>
+
+## Core Components
+
+Lucille's architecture consists of four main components that form a document processing pipeline:
+
+<CardGroup cols={2}>
+  <Card title="Connectors" icon="plug" href="/concepts/connectors">
+    Extract data from source systems and generate Documents
+  </Card>
+  <Card title="Pipelines" icon="diagram-project" href="/concepts/pipelines">
+    Orchestrate sequences of transformation Stages
+  </Card>
+  <Card title="Stages" icon="wand-magic-sparkles" href="/concepts/stages">
+    Perform individual transformations on Documents
+  </Card>
+  <Card title="Indexers" icon="database" href="/concepts/indexers">
+    Batch and send processed Documents to search engines
+  </Card>
+</CardGroup>
+
+## Document Flow
+
+Documents flow through the system in a well-defined sequence:
+
+```
+Source System → Connector → Pipeline (Stages) → Indexer → Search Engine
+                    ↓            ↓                  ↓
+                Publisher → WorkerMessenger → IndexerMessenger
+```
+
+1. **Connector** reads data from a source and creates Documents
+2. **Publisher** sends Documents to a message queue or in-memory buffer
+3. **Worker** polls for Documents and processes them through the Pipeline
+4. **Pipeline** applies each Stage in sequence to transform the Document
+5. **Indexer** receives completed Documents and batches them
+6. **Search Engine** receives batched Documents for indexing
+
+<Note>
+Child documents generated during pipeline processing are automatically sent downstream and handled by the same components.
+</Note>
+
+## Deployment Modes
+
+Lucille supports multiple deployment modes to accommodate different scalability and complexity requirements:
+
+### Local Mode
+
+In Local mode, all components run as threads within a single JVM process. Communication happens through in-memory queues with no external dependencies.
+
+**Characteristics:**
+- All components (Connector, Worker, Indexer) run in the same JVM
+- In-memory message passing (no Kafka required)
+- Ideal for development, testing, and small-scale deployments
+- Simple setup with minimal infrastructure
+
+**Architecture:**
+```java
+// Runner launches all components as threads
+Runner.run(config, RunType.LOCAL);
+// Creates:
+// - 1+ Worker threads (process documents through pipeline)
+// - 1 Indexer thread (batch and send to search engine)
+// - 1 Connector thread (read from source and publish)
+// - 1 main thread (coordinate and wait for completion)
+```
+
+### Test Mode
+
+Test mode is similar to Local mode but bypasses the actual search engine and captures all message traffic for inspection.
+
+**Characteristics:**
+- Same threading model as Local mode
+- Indexer bypasses actual search engine writes
+- All messages stored in a `TestMessenger` for inspection
+- Perfect for unit and integration testing
+
+**Usage:**
+```java
+Map<String, TestMessenger> history = Runner.runInTestMode(config);
+// Inspect documents, events, and message flow
+TestMessenger messenger = history.get("myConnector");
+List<Document> indexed = messenger.getDocsSentToIndex();
+```
+
+### Distributed Mode (Kafka)
+
+In distributed mode, components run as separate processes and communicate through Apache Kafka. This enables horizontal scalability and fault tolerance.
+
+**Characteristics:**
+- Connector, Workers, and Indexers run as independent processes
+- Communication via Kafka topics
+- Multiple Workers can process documents in parallel
+- Multiple Indexers can write to different search engines
+- Supports high-volume, production deployments
+
+**Architecture:**
+```
+┌─────────────┐
+│  Connector  │ ──publish──► topic.documents.pipeline1
+└─────────────┘                      ↓
+                          ┌──────────────────┐
+                          │  Worker Pool     │
+                          │  (N processes)   │ ──send──► topic.toindex.pipeline1
+                          └──────────────────┘                 ↓
+                                                    ┌──────────────────┐
+                                                    │     Indexer      │
+                                                    │   (M processes)  │
+                                                    └──────────────────┘
+```
+
+### Kafka Local Mode
+
+A hybrid mode that runs all components as threads in one JVM but uses Kafka for communication. Useful for testing distributed behavior locally.
+
+**Characteristics:**
+- Threading model similar to Local mode
+- Uses actual Kafka for message passing
+- Tests distributed behavior without deploying separate processes
+- Requires local Kafka instance
+
+## Messaging Architecture
+
+Lucille uses a messenger abstraction to enable different communication strategies:
+
+<Accordion title="LocalMessenger">
+In-memory queues for single-JVM deployments. Provides thread-safe concurrent access to documents and events without external dependencies.
+</Accordion>
+
+<Accordion title="KafkaMessenger">
+Kafka-based messaging for distributed deployments. Documents and events flow through Kafka topics, enabling independent scaling of each component type.
+
+**Key topics:**
+- `topic.documents.{pipeline}` - Documents to be processed
+- `topic.toindex.{pipeline}` - Documents ready for indexing
+- `topic.events.{pipeline}` - Lifecycle events (CREATE, DROP, FINISH, FAIL)
+</Accordion>
+
+<Accordion title="TestMessenger">
+Captures and stores all messages for testing purposes. Extends LocalMessenger with recording capabilities to enable assertions about document flow and transformations.
+</Accordion>
+
+## Component Lifecycle
+
+Each component follows a well-defined lifecycle:
+
+### Connector Lifecycle
+
+```java
+try {
+    connector.preExecute(runId);    // Setup phase
+    connector.execute(publisher);    // Main execution
+    connector.postExecute(runId);    // Cleanup phase
+} finally {
+    connector.close();               // Resource release
+}
+```
+
+### Worker Lifecycle
+
+```java
+worker.start();  // Initialize pipeline stages
+while (running) {
+    Document doc = messenger.pollDocToProcess();
+    Iterator<Document> results = pipeline.processDocument(doc);
+    // Send results to indexer
+}
+worker.stop();   // Stop pipeline stages
+```
+
+### Indexer Lifecycle
+
+```java
+indexer.validateConnection();  // Check search engine connectivity
+while (running) {
+    Document doc = messenger.pollDocToIndex();
+    batch.add(doc);
+    if (batch.ready()) {
+        indexer.sendToIndex(batch.flush());
+    }
+}
+indexer.closeConnection();
+```
+
+## Run Management
+
+A "Run" in Lucille represents a complete execution of one or more Connectors. Each run:
+
+- Has a unique Run ID (UUID) attached to all documents
+- Executes Connectors sequentially (one must complete before next starts)
+- Tracks completion of all documents (including generated children)
+- Fails if any Connector lifecycle method throws an exception
+- Succeeds only when all documents reach an end state (indexed or failed)
+
+<Info>
+A Connector is **not** considered failed if individual documents encounter errors during pipeline processing or indexing. Only failures in `preExecute()`, `execute()`, or `postExecute()` cause the run to fail.
+</Info>
+
+## Parallelism and Concurrency
+
+Lucille achieves parallelism at multiple levels:
+
+### Worker-Level Parallelism
+
+Multiple Worker threads or processes can consume documents from the same queue/topic, processing them through the pipeline concurrently.
+
+```hocon
+worker {
+  threads: 4  // Local mode: number of worker threads
+}
+```
+
+### Stage-Level Concurrency
+
+Each document flows through stages sequentially, but different documents can be in different stages simultaneously. Child documents generated by a stage flow through downstream stages only.
+
+### Batch-Level Efficiency
+
+Indexers batch multiple documents together before sending to the search engine, optimizing network utilization and search engine performance.
+
+## Metrics and Observability
+
+Lucille collects detailed metrics using the Dropwizard Metrics library:
+
+- **Stage metrics**: Processing time, document count, children generated, errors
+- **Worker metrics**: Document processing time distribution
+- **Indexer metrics**: Batching time, documents indexed, indexing rate
+- **Run metrics**: Total time, connector duration, success/failure status
+
+Metrics are namespaced by run ID, connector name, and pipeline name:
+```
+{runId}.{connectorName}.{pipelineName}.stage.{stageName}.processDocumentTime
+{runId}.{connectorName}.{pipelineName}.worker.docProcessingTime
+{runId}.{connectorName}.{pipelineName}.indexer.docsIndexed
+```
+
+## Configuration
+
+Lucille uses HOCON (Human-Optimized Config Object Notation) for configuration, supporting:
+
+- Substitution variables and environment variables
+- Includes and inheritance
+- Type safety and validation
+- Comments and readability
+
+See [Configuration Guide](/configuration/overview) for detailed information.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Documents" icon="file" href="/concepts/documents">
+    Learn about the Document data structure
+  </Card>
+  <Card title="Connectors" icon="plug" href="/concepts/connectors">
+    Understand how data is ingested
+  </Card>
+  <Card title="Pipelines" icon="diagram-project" href="/concepts/pipelines">
+    Explore pipeline architecture
+  </Card>
+  <Card title="Deployment" icon="server" href="/deployment/modes">
+    Deploy Lucille in production
+  </Card>
+</CardGroup>

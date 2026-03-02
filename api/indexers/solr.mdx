@@ -1,0 +1,308 @@
+---
+title: "Solr Indexer"
+description: "Index documents to Apache Solr with support for SolrCloud"
+icon: "magnifying-glass"
+---
+
+## Overview
+
+The `SolrIndexer` sends processed documents to Apache Solr using the SolrJ client library. It supports both standalone Solr instances and SolrCloud deployments with ZooKeeper coordination.
+
+**Java Class**: `com.kmwllc.lucille.indexer.SolrIndexer`
+
+Source: [SolrIndexer.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-core/src/main/java/com/kmwllc/lucille/indexer/SolrIndexer.java)
+
+## Configuration
+
+### Basic Configuration
+
+```hocon
+indexer {
+  type: "solr"
+  
+  solr {
+    url: ["http://localhost:8983/solr"]
+    defaultCollection: "my_collection"
+  }
+}
+```
+
+### SolrCloud Configuration
+
+```hocon
+indexer {
+  type: "solr"
+  
+  solr {
+    useCloudClient: true
+    zkHosts: ["zk1:2181", "zk2:2181", "zk3:2181"]
+    zkChroot: "/solr"
+    defaultCollection: "my_collection"
+  }
+}
+```
+
+## Parameters
+
+<ParamField path="url" type="string[]">
+  One or more Solr base URLs (e.g., `https://localhost:8983`). Used for standalone Solr instances.
+  
+  **Example**: `["http://solr1:8983", "http://solr2:8983"]`
+</ParamField>
+
+<ParamField path="useCloudClient" type="boolean" default="false">
+  Whether to use the SolrCloud client. Set to `true` when connecting to a SolrCloud cluster with ZooKeeper.
+</ParamField>
+
+<ParamField path="zkHosts" type="string[]">
+  ZooKeeper connection strings when using SolrCloud. Required when `useCloudClient` is true.
+  
+  **Example**: `["zk1:2181", "zk2:2181", "zk3:2181"]`
+</ParamField>
+
+<ParamField path="zkChroot" type="string">
+  ZooKeeper chroot path used with SolrCloud. Typically `/solr` or similar.
+</ParamField>
+
+<ParamField path="defaultCollection" type="string">
+  Default Solr collection to index documents into when no `indexOverrideField` is present on the document.
+</ParamField>
+
+<ParamField path="userName" type="string">
+  Username for HTTP basic authentication.
+</ParamField>
+
+<ParamField path="password" type="string">
+  Password for HTTP basic authentication.
+</ParamField>
+
+<ParamField path="acceptInvalidCert" type="boolean" default="false">
+  Allow invalid TLS certificates. Use with caution - only for development/testing.
+</ParamField>
+
+## Features
+
+### Multi-Collection Support
+
+Route documents to different collections using the `indexOverrideField`:
+
+```hocon
+indexer {
+  indexOverrideField: "target_collection"
+  
+  solr {
+    defaultCollection: "default_docs"
+  }
+}
+```
+
+Documents with a `target_collection` field will be sent to that collection instead of the default.
+
+### Child Documents
+
+Solr's nested document feature is fully supported. Documents can contain child documents in the `children` field:
+
+```json
+{
+  "id": "parent1",
+  "title": "Parent Document",
+  "children": [
+    {
+      "id": "child1",
+      "content": "Child document content"
+    }
+  ]
+}
+```
+
+Child documents are automatically converted to Solr's `_childDocuments_` format.
+
+### Deletion Support
+
+<Tabs>
+  <Tab title="Delete by ID">
+    ```hocon
+    indexer {
+      deletionMarkerField: "delete"
+      deletionMarkerFieldValue: "true"
+    }
+    ```
+    
+    Documents marked for deletion will be removed by ID using `solrClient.deleteById()`.
+  </Tab>
+  
+  <Tab title="Delete by Field">
+    ```hocon
+    indexer {
+      deletionMarkerField: "delete"
+      deletionMarkerFieldValue: "true"
+      deleteByFieldField: "account_id"
+      deleteByFieldValue: "account_value"
+    }
+    ```
+    
+    Delete all documents matching a field value using Solr's terms query.
+  </Tab>
+</Tabs>
+
+### SSL/TLS Configuration
+
+Connect to Solr over HTTPS with custom SSL settings:
+
+```hocon
+solr {
+  url: ["https://solr.example.com:8983"]
+  
+  # SSL settings
+  ssl.trustStorePath: "/path/to/truststore.jks"
+  ssl.trustStorePassword: "password"
+  ssl.keyStorePath: "/path/to/keystore.jks"
+  ssl.keyStorePassword: "password"
+}
+```
+
+## Connection Validation
+
+The indexer validates connectivity during startup:
+
+- **Standalone Solr**: Uses `solrClient.ping()` to verify the connection
+- **SolrCloud**: Checks cluster status via `CollectionAdminRequest.ClusterStatus()`
+
+If validation fails, the pipeline will not start.
+
+## Batch Processing
+
+Documents are sent to Solr in batches:
+
+1. Documents accumulate up to `batchSize` (default 100)
+2. Within each batch, documents are grouped by collection
+3. Add/update operations are sent first
+4. Delete operations are sent after adds/updates
+5. If an ID appears in both adds and deletes, operations are ordered correctly
+
+## Error Handling
+
+Failed documents are tracked and reported:
+
+```java
+// Documents that fail are returned with error details
+Set<Pair<Document, String>> failedDocs = sendToIndex(documents);
+```
+
+Errors include:
+- Connection failures
+- Invalid field types
+- Collection not found
+- Authentication failures
+
+## Example Configurations
+
+<Accordion title="Basic standalone Solr">
+```hocon
+indexer {
+  type: "solr"
+  batchSize: 500
+  
+  solr {
+    url: ["http://localhost:8983/solr"]
+    defaultCollection: "documents"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="SolrCloud with authentication">
+```hocon
+indexer {
+  type: "solr"
+  batchSize: 1000
+  
+  solr {
+    useCloudClient: true
+    zkHosts: ["zk1:2181", "zk2:2181", "zk3:2181"]
+    zkChroot: "/solr"
+    defaultCollection: "main_docs"
+    userName: "solr_user"
+    password: "secret_password"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Multi-collection with deletion">
+```hocon
+indexer {
+  type: "solr"
+  indexOverrideField: "collection_name"
+  deletionMarkerField: "deleted"
+  deletionMarkerFieldValue: "yes"
+  
+  solr {
+    useCloudClient: true
+    zkHosts: ["localhost:2181"]
+    defaultCollection: "default"
+  }
+}
+```
+</Accordion>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use SolrCloud for production">
+    SolrCloud provides high availability, automatic failover, and distributed indexing. Use `useCloudClient: true` and connect via ZooKeeper.
+  </Accordion>
+
+  <Accordion title="Optimize batch size">
+    - Start with 500-1000 documents per batch
+    - Reduce for documents with large text fields
+    - Monitor Solr's heap usage and adjust
+  </Accordion>
+
+  <Accordion title="Handle child documents carefully">
+    - Child documents cannot have their own children (nested limit)
+    - Map types must be flattened to fields
+    - Child IDs should be unique across the entire index
+  </Accordion>
+
+  <Accordion title="Use field-based deletion sparingly">
+    Field-based deletion (`deleteByFieldField`) executes a query before deleting. For high-volume deletions, consider:
+    - Deleting by ID when possible
+    - Batching deletions
+    - Using Solr's time-to-live (TTL) features
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    - Verify Solr is running: `curl http://localhost:8983/solr/admin/ping`
+    - Check firewall rules
+    - Confirm correct port and protocol (HTTP vs HTTPS)
+  </Accordion>
+
+  <Accordion title="Collection not found">
+    - Create the collection in Solr first
+    - Verify `defaultCollection` matches exactly (case-sensitive)
+    - For SolrCloud, ensure collection exists in ZooKeeper
+  </Accordion>
+
+  <Accordion title="Authentication failures">
+    - Verify credentials are correct
+    - Check Solr's security.json configuration
+    - Ensure the user has write permissions to the collection
+  </Accordion>
+
+  <Accordion title="Field type errors">
+    - Ensure Solr schema matches document fields
+    - Use `ignoreFields` to exclude problematic fields
+    - Check for Map/Object fields (not supported directly)
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+- [Indexers Overview](/api/indexers/overview)
+- [OpenSearch Indexer](/api/indexers/opensearch)
+- [Apache Solr Documentation](https://solr.apache.org/guide/)

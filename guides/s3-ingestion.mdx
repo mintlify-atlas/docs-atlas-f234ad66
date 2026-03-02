@@ -1,0 +1,429 @@
+---
+title: 'S3 Ingestion Guide'
+description: 'Ingest files from Amazon S3 buckets with text extraction and chunking'
+icon: 'aws'
+---
+
+This guide demonstrates how to ingest files from Amazon S3, extract text using Apache Tika, chunk the content for RAG applications, and index to OpenSearch.
+
+## Overview
+
+This example shows a complete RAG (Retrieval-Augmented Generation) ingestion pipeline:
+- Read files from S3 buckets
+- Extract text from various file formats (PDF, Word, HTML, etc.)
+- Chunk text into smaller segments
+- Index to OpenSearch for vector search
+
+## Prerequisites
+
+<Steps>
+  <Step title="AWS Credentials">
+    Ensure you have AWS credentials configured:
+    
+    ```bash
+    export AWS_REGION="us-east-1"
+    export AWS_ACCESS_KEY_ID="your-access-key"
+    export AWS_SECRET_ACCESS_KEY="your-secret-key"
+    ```
+  </Step>
+
+  <Step title="OpenSearch Setup">
+    Start OpenSearch locally using Docker:
+    
+    ```bash
+    docker-compose up -d
+    ```
+    
+    Or follow the [OpenSearch Getting Started Guide](https://opensearch.org/docs/latest/getting-started/).
+  </Step>
+
+  <Step title="S3 Bucket">
+    Create an S3 bucket and upload documents:
+    
+    ```bash
+    aws s3 mb s3://my-test-bucket
+    aws s3 cp documents/ s3://my-test-bucket/folder1/ --recursive
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Full Pipeline Configuration
+
+<CodeGroup>
+```hocon conf/s3-opensearch.conf
+connectors: [
+  {
+    name: "fileConnector",
+    class: "com.kmwllc.lucille.connector.FileConnector",
+    pipeline: "pipeline1",
+    
+    # S3 path to your files
+    paths: [${?PATH_TO_STORAGE}]
+    
+    fileOptions: {
+      getFileContent: true
+    }
+    
+    # S3 configuration
+    s3: {
+      region: ${?AWS_REGION}
+      accessKeyId: ${?AWS_ACCESS_KEY_ID}
+      secretAccessKey: ${?AWS_SECRET_ACCESS_KEY}
+    }
+  }
+]
+
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: [
+      {
+        name: "TextExtractor"
+        class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+        # FileConnector places content in this field
+        byteArrayField: "file_content"
+        metadataPrefix: ""
+        metadataBlacklist: []
+        tikaConfigPath: "conf/tika-config.xml"
+      },
+      {
+        name: "ChunkText"
+        class: "com.kmwllc.lucille.stage.ChunkText"
+        source: "text"
+        dest: "text"
+        chunkingMethod: "paragraph"
+      },
+      {
+        name: "EmitNestedChildren"
+        class: "com.kmwllc.lucille.stage.EmitNestedChildren"
+        dropParent: "false"
+      },
+      {
+        name: "DeleteFields"
+        class: "com.kmwllc.lucille.stage.DeleteFields"
+        fields: ["file_content", "_version"]
+      }   
+    ]
+  }
+]
+
+indexer {
+  type: "OpenSearch"
+  batchTimeout: 1000
+  batchSize: 100
+  sendEnabled: true
+}
+
+opensearch {
+  url: ${?INGEST_URL}
+  index: ${?INGEST_INDEX}
+  acceptInvalidCert: true
+}
+```
+</CodeGroup>
+
+<Note>
+The `${?VAR}` syntax allows environment variable overrides while providing defaults for testing.
+</Note>
+
+## Pipeline Stages Explained
+
+### 1. TextExtractor Stage
+
+Extracts text from binary file content using Apache Tika:
+
+```hocon
+{
+  name: "TextExtractor"
+  class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+  byteArrayField: "file_content"    # Input field with binary data
+  metadataPrefix: ""                # Prefix for metadata fields
+  tikaConfigPath: "conf/tika-config.xml"
+}
+```
+
+**Supported formats**: PDF, Word, Excel, PowerPoint, HTML, plain text, images (with OCR), and 1000+ more.
+
+### 2. ChunkText Stage
+
+Splits text into smaller chunks for RAG applications:
+
+```hocon
+{
+  name: "ChunkText"
+  class: "com.kmwllc.lucille.stage.ChunkText"
+  source: "text"              # Field containing text to chunk
+  dest: "text"                # Output field name in child docs
+  chunkingMethod: "paragraph" # Options: paragraph, sentence, fixed, custom
+}
+```
+
+<Tip>
+For RAG applications, use paragraph chunking with a minimum chunk size:
+```hocon
+chunkingMethod: "paragraph"
+preMergeMinChunkLen: 100
+characterLimit: 2000
+```
+</Tip>
+
+### 3. EmitNestedChildren Stage
+
+Converts attached child documents into separate documents:
+
+```hocon
+{
+  name: "EmitNestedChildren"
+  class: "com.kmwllc.lucille.stage.EmitNestedChildren"
+  dropParent: "false"  # Set to true to only index chunks, not parent
+}
+```
+
+Each chunk becomes a separate document with metadata:
+- `parent_id`: Original document ID
+- `chunk_number`: Sequence number
+- `total_chunks`: Total number of chunks
+- `offset`: Character offset in original text
+
+### 4. DeleteFields Stage
+
+Cleans up unnecessary fields before indexing:
+
+```hocon
+{
+  name: "DeleteFields"
+  class: "com.kmwllc.lucille.stage.DeleteFields"
+  fields: ["file_content", "_version"]
+}
+```
+
+## Environment Variables
+
+Create a `.env` file or export variables:
+
+```bash
+# S3 Configuration
+export AWS_REGION="us-east-2"
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export PATH_TO_STORAGE="s3://my-test-bucket/folder1"
+
+# OpenSearch Configuration
+export INGEST_URL="https://username:password@localhost:9200/"
+export INGEST_INDEX="s3-docs"
+```
+
+## Running the Ingestion
+
+<Steps>
+  <Step title="Build the Project">
+    ```bash
+    mvn clean package
+    ```
+  </Step>
+
+  <Step title="Run the Script">
+    ```bash
+    ./scripts/run_ingest.sh
+    ```
+    
+    The script runs:
+    ```bash
+    java -Dconfig.file=conf/s3-opensearch.conf \
+         -cp 'target/lib/*' \
+         com.kmwllc.lucille.core.Runner
+    ```
+  </Step>
+
+  <Step title="Monitor Progress">
+    Watch the logs for progress:
+    ```
+    INFO  FileConnector - Processing s3://bucket/file.pdf
+    INFO  TextExtractor - Extracted 2500 characters
+    INFO  ChunkText - Created 5 chunks
+    INFO  Indexer - Indexed 5 documents
+    ```
+  </Step>
+</Steps>
+
+## Advanced Configurations
+
+### Sentence-Based Chunking with Overlap
+
+For more granular control:
+
+```hocon
+{
+  name: "ChunkText"
+  class: "com.kmwllc.lucille.stage.ChunkText"
+  source: "text"
+  dest: "text"
+  chunkingMethod: "sentence"
+  chunksToMerge: 5           # Merge 5 sentences per chunk
+  chunksToOverlap: 1         # Overlap 1 sentence between chunks
+  characterLimit: 2000       # Max characters per chunk
+  cleanChunks: true          # Remove extra whitespace
+}
+```
+
+### Custom Tika Configuration
+
+Create `conf/tika-config.xml` for OCR and advanced parsing:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <parsers>
+    <parser class="org.apache.tika.parser.DefaultParser"/>
+  </parsers>
+  <detectors>
+    <detector class="org.apache.tika.detect.DefaultDetector"/>
+  </detectors>
+</properties>
+```
+
+### Filtering Files by Type
+
+Process only specific file types:
+
+```hocon
+fileOptions: {
+  getFileContent: true
+  includePatterns: [".*\\.pdf$", ".*\\.docx?$"]
+  excludePatterns: [".*\\.tmp$"]
+}
+```
+
+### Adding Metadata Enrichment
+
+Extract and transform metadata:
+
+```hocon
+stages: [
+  {
+    name: "TextExtractor"
+    class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+    byteArrayField: "file_content"
+    metadataPrefix: "meta_"
+  },
+  {
+    name: "CopyFields"
+    class: "com.kmwllc.lucille.stage.CopyFields"
+    fieldMapping: {
+      "meta_author": "author"
+      "meta_title": "title"
+      "file_path": "source_path"
+    }
+  },
+  // ... rest of pipeline
+]
+```
+
+## Chunking Strategies
+
+<CardGroup cols={2}>
+  <Card title="Paragraph Chunking" icon="paragraph">
+    Best for: Documents with clear paragraph structure
+    ```hocon
+    chunkingMethod: "paragraph"
+    preMergeMinChunkLen: 100
+    ```
+  </Card>
+
+  <Card title="Sentence Chunking" icon="text">
+    Best for: Fine-grained control, QA systems
+    ```hocon
+    chunkingMethod: "sentence"
+    chunksToMerge: 5
+    chunksToOverlap: 1
+    ```
+  </Card>
+
+  <Card title="Fixed Chunking" icon="scissors">
+    Best for: Consistent chunk sizes
+    ```hocon
+    chunkingMethod: "fixed"
+    lengthToSplit: 1000
+    overlapPercentage: 10
+    ```
+  </Card>
+
+  <Card title="Custom Chunking" icon="wand-magic-sparkles">
+    Best for: Domain-specific splitting
+    ```hocon
+    chunkingMethod: "custom"
+    regex: "\n\n+"
+    ```
+  </Card>
+</CardGroup>
+
+## Indexing to OpenSearch
+
+### Create an Embedding Index
+
+For vector search, create an index with embeddings:
+
+```json
+PUT /s3-docs
+{
+  "settings": {
+    "index": {
+      "knn": true
+    }
+  },
+  "mappings": {
+    "properties": {
+      "text": { "type": "text" },
+      "embedding": {
+        "type": "knn_vector",
+        "dimension": 768
+      },
+      "parent_id": { "type": "keyword" },
+      "chunk_number": { "type": "integer" }
+    }
+  }
+}
+```
+
+<Warning>
+For production use, consider adding an embedding stage (like OpenAI or HuggingFace) before indexing.
+</Warning>
+
+## Next Steps
+
+- Add [Vector Search](/guides/vector-search) with embeddings
+- Learn about [Custom Stages](/guides/custom-stages) for domain-specific processing
+- Explore [Document Generation](/guides/document-generation) for testing
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="S3 access denied">
+    Check your AWS credentials and bucket permissions:
+    ```bash
+    aws s3 ls s3://your-bucket/
+    ```
+    
+    Ensure your IAM user/role has `s3:GetObject` and `s3:ListBucket` permissions.
+  </Accordion>
+
+  <Accordion title="Out of memory errors">
+    Reduce batch size or add JVM memory:
+    ```bash
+    java -Xmx4g -Dconfig.file=conf/s3-opensearch.conf ...
+    ```
+    
+    Or process fewer files at once by being more specific with paths.
+  </Accordion>
+
+  <Accordion title="OpenSearch connection issues">
+    Verify OpenSearch is accessible:
+    ```bash
+    curl -k https://username:password@localhost:9200/
+    ```
+    
+    Set `acceptInvalidCert: true` for self-signed certificates.
+  </Accordion>
+</AccordionGroup>

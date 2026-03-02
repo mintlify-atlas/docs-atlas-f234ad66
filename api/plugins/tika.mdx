@@ -1,0 +1,443 @@
+---
+title: "Tika Plugin"
+description: "Extract text and metadata from documents using Apache Tika"
+icon: "file-lines"
+---
+
+## Overview
+
+The Tika plugin provides the `TextExtractor` stage, which uses Apache Tika to extract text content and metadata from a wide variety of document formats including PDF, Word, Excel, PowerPoint, HTML, and many others.
+
+**Maven Module**: `lucille-tika`
+
+**Java Class**: `com.kmwllc.lucille.tika.stage.TextExtractor`
+
+Source: [TextExtractor.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-plugins/lucille-tika/src/main/java/com/kmwllc/lucille/tika/stage/TextExtractor.java)
+
+## Installation
+
+Add the plugin dependency to your `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>com.kmwllc</groupId>
+  <artifactId>lucille-tika</artifactId>
+  <version>${lucille.version}</version>
+</dependency>
+```
+
+## Configuration
+
+### Basic Configuration
+
+```hocon
+stage {
+  class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+  filePathField: "path"
+  textField: "content"
+}
+```
+
+### Extract from Byte Array
+
+```hocon
+stage {
+  class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+  byteArrayField: "file_bytes"
+  textField: "extracted_text"
+  metadataPrefix: "tika"
+}
+```
+
+## Parameters
+
+<ParamField path="textField" type="string" default="text">
+  Destination field for extracted text content.
+</ParamField>
+
+<ParamField path="filePathField" type="string">
+  Document field containing the file path to extract from. Mutually exclusive with `byteArrayField`.
+  
+  **Example**: `"file_path"`, `"document_url"`
+</ParamField>
+
+<ParamField path="byteArrayField" type="string">
+  Document field containing byte array data to extract from. Mutually exclusive with `filePathField`.
+  
+  **Example**: `"file_data"`, `"content_bytes"`
+</ParamField>
+
+<ParamField path="tikaConfigPath" type="string">
+  Path to a custom Tika configuration XML file. If not provided, uses Tika's default AutoDetectParser.
+  
+  **Example**: `"/etc/tika/tika-config.xml"`
+</ParamField>
+
+<ParamField path="metadataPrefix" type="string" default="tika">
+  Prefix to append to extracted metadata field names.
+  
+  Set to empty string (`""`) for no prefix.
+</ParamField>
+
+<ParamField path="textContentLimit" type="integer" default="Integer.MAX_VALUE">
+  Maximum number of characters to extract. Useful for preventing memory issues with very large documents.
+  
+  **Example**: `1000000` (1 million characters)
+</ParamField>
+
+<ParamField path="parseTimeout" type="long">
+  Timeout for parsing in milliseconds. If parsing exceeds this time, it will be cancelled.
+  
+  **Example**: `30000` (30 seconds)
+</ParamField>
+
+<ParamField path="metadataWhitelist" type="string[]">
+  List of metadata field names to include in the document. If specified, only these metadata fields are extracted.
+  
+  Mutually exclusive with `metadataBlacklist`.
+</ParamField>
+
+<ParamField path="metadataBlacklist" type="string[]">
+  List of metadata field names to exclude from the document.
+  
+  Mutually exclusive with `metadataWhitelist`.
+</ParamField>
+
+## Cloud Storage Support
+
+The plugin supports reading files from cloud storage:
+
+<Tabs>
+  <Tab title="Amazon S3">
+    ```hocon
+    stage {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "s3_path"
+      
+      s3 {
+        region: "us-east-1"
+        accessKey: "${AWS_ACCESS_KEY}"
+        secretKey: "${AWS_SECRET_KEY}"
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Azure Blob Storage">
+    ```hocon
+    stage {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "azure_path"
+      
+      azure {
+        accountName: "${AZURE_ACCOUNT}"
+        accountKey: "${AZURE_KEY}"
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Google Cloud Storage">
+    ```hocon
+    stage {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "gcs_path"
+      
+      gcp {
+        projectId: "my-project"
+        credentialsPath: "/path/to/service-account.json"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Features
+
+### Automatic Format Detection
+
+Tika automatically detects document types based on:
+- File extension
+- MIME type
+- Content analysis (magic bytes)
+
+Supported formats include:
+- **Documents**: PDF, Word (DOC/DOCX), RTF, OpenDocument
+- **Spreadsheets**: Excel (XLS/XLSX), CSV
+- **Presentations**: PowerPoint (PPT/PPTX)
+- **Web**: HTML, XML
+- **Archives**: ZIP, TAR, GZIP
+- **Images**: JPEG, PNG (with metadata)
+- **And many more...**
+
+### Metadata Extraction
+
+Tika extracts rich metadata from documents:
+
+```hocon
+metadataPrefix: "tika"
+```
+
+Extracted metadata might include:
+- `tika_content_type`: MIME type
+- `tika_title`: Document title
+- `tika_author`: Author name
+- `tika_creation_date`: When document was created
+- `tika_page_count`: Number of pages
+- And many more format-specific fields
+
+### Metadata Filtering
+
+Control which metadata fields are extracted:
+
+```hocon
+# Include only specific metadata
+metadataWhitelist: ["title", "author", "creation_date"]
+
+# OR exclude specific metadata
+metadataBlacklist: ["x_parsed_by", "content_encoding"]
+```
+
+### Content Limiting
+
+Prevent memory issues with large documents:
+
+```hocon
+textContentLimit: 500000  # Extract up to 500KB of text
+```
+
+When the limit is reached, Tika stops extracting additional content.
+
+### Parse Timeout
+
+Prevent hanging on problematic documents:
+
+```hocon
+parseTimeout: 60000  # 60 seconds
+```
+
+If parsing takes longer than the timeout, the operation is cancelled and a warning is logged.
+
+## Field Name Cleaning
+
+Metadata field names are automatically cleaned:
+
+- Converted to lowercase
+- Spaces replaced with underscores
+- Hyphens replaced with underscores
+- Colons replaced with underscores
+
+**Example**:
+- `Content-Type` → `content_type`
+- `Creation Date` → `creation_date`
+- `dc:creator` → `dc_creator`
+
+## Example Configurations
+
+<Accordion title="Extract from local files">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "file_path"
+      textField: "content"
+      metadataPrefix: "doc"
+      textContentLimit: 1000000
+      parseTimeout: 30000
+    }
+  ]
+}
+```
+</Accordion>
+
+<Accordion title="Extract from S3 with metadata filtering">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "s3_key"
+      textField: "extracted_content"
+      metadataPrefix: "meta"
+      
+      metadataWhitelist: [
+        "title",
+        "author",
+        "creation_date",
+        "page_count",
+        "content_type"
+      ]
+      
+      s3 {
+        region: "us-west-2"
+        accessKey: "${AWS_ACCESS_KEY}"
+        secretKey: "${AWS_SECRET_KEY}"
+      }
+    }
+  ]
+}
+```
+</Accordion>
+
+<Accordion title="Extract from byte arrays with custom Tika config">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      byteArrayField: "file_data"
+      textField: "text"
+      tikaConfigPath: "/etc/tika/custom-config.xml"
+      metadataPrefix: ""
+      textContentLimit: 2000000
+    }
+  ]
+}
+```
+</Accordion>
+
+<Accordion title="Extract PDFs with timeout">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "pdf_path"
+      textField: "pdf_text"
+      parseTimeout: 120000  # 2 minutes for large PDFs
+      metadataBlacklist: ["x_parsed_by"]
+    }
+  ]
+}
+```
+</Accordion>
+
+## Lifecycle Methods
+
+### start()
+
+Initializes resources:
+- Creates storage clients (S3, Azure, GCP) if file path field is used
+- Initializes Tika parser with config or default AutoDetectParser
+- Creates executor service if parse timeout is configured
+
+### stop()
+
+Cleans up resources:
+- Shuts down storage clients
+- Terminates executor service
+- Releases parser resources
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use parse timeouts for production">
+    Some documents may cause Tika to hang. Always set a reasonable timeout:
+    ```hocon
+    parseTimeout: 60000  # 60 seconds
+    ```
+  </Accordion>
+
+  <Accordion title="Limit text extraction for large documents">
+    Prevent memory issues by limiting extracted text:
+    ```hocon
+    textContentLimit: 1000000  # 1MB of text
+    ```
+  </Accordion>
+
+  <Accordion title="Filter metadata appropriately">
+    Extract only needed metadata to reduce document size:
+    ```hocon
+    metadataWhitelist: ["title", "author", "creation_date"]
+    ```
+  </Accordion>
+
+  <Accordion title="Handle errors gracefully">
+    Tika logs warnings for problematic files but continues processing. Monitor logs for:
+    - `TikaException`: Parsing errors
+    - `IOException`: File access errors
+    - `TimeoutException`: Parse timeout exceeded
+  </Accordion>
+
+  <Accordion title="Choose file path vs byte array">
+    - **File path**: Better for large files (streaming)
+    - **Byte array**: Better when files are already in memory
+    - **Never use both** on the same stage
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="OutOfMemoryError">
+    Reduce memory usage:
+    - Set `textContentLimit` to a reasonable value
+    - Increase JVM heap size: `-Xmx4g`
+    - Process large files in a separate pipeline with higher limits
+  </Accordion>
+
+  <Accordion title="Parsing hangs or times out">
+    - Set `parseTimeout` to prevent hanging
+    - Some PDFs with complex structures may be slow
+    - Consider pre-processing problematic documents
+  </Accordion>
+
+  <Accordion title="Missing metadata">
+    - Check that metadata exists in source document
+    - Verify `metadataWhitelist` includes the field
+    - Check `metadataBlacklist` doesn't exclude it
+    - Remember field names are cleaned (lowercase, underscores)
+  </Accordion>
+
+  <Accordion title="File not found errors">
+    For cloud storage:
+    - Verify credentials are correct
+    - Check file path format (e.g., `s3://bucket/key`)
+    - Ensure storage client is properly configured
+    - Test connectivity to cloud service
+  </Accordion>
+</AccordionGroup>
+
+## Supported File Formats
+
+Tika supports hundreds of formats. Common ones include:
+
+- **Documents**: PDF, DOC, DOCX, ODT, RTF, TXT
+- **Spreadsheets**: XLS, XLSX, ODS, CSV
+- **Presentations**: PPT, PPTX, ODP
+- **Web**: HTML, XHTML, XML
+- **Email**: EML, MSG, PST
+- **Archives**: ZIP, TAR, GZIP, RAR
+- **Images**: JPEG, PNG, TIFF, GIF (metadata only)
+- **Audio/Video**: MP3, MP4, AVI (metadata only)
+
+See [Tika Supported Formats](https://tika.apache.org/2.9.1/formats.html) for the complete list.
+
+## Custom Tika Configuration
+
+Create a custom Tika config XML for advanced use cases:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <parsers>
+    <parser class="org.apache.tika.parser.DefaultParser"/>
+  </parsers>
+  <detectors>
+    <detector class="org.apache.tika.detect.DefaultDetector"/>
+  </detectors>
+</properties>
+```
+
+Reference it in configuration:
+
+```hocon
+tikaConfigPath: "/etc/tika/tika-config.xml"
+```
+
+## See Also
+
+- [OCR Plugin](/api/plugins/ocr) - Extract text from images
+- [Plugins Overview](/api/plugins/overview)
+- [Apache Tika Documentation](https://tika.apache.org/)

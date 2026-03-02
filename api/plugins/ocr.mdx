@@ -1,0 +1,470 @@
+---
+title: "OCR Plugin"
+description: "Extract text from images using optical character recognition"
+icon: "camera"
+---
+
+## Overview
+
+The OCR plugin provides the `ApplyOCR` stage, which uses Tesseract OCR to extract text from images and PDFs. It supports full-page text extraction as well as template-based form extraction for structured documents.
+
+**Maven Module**: `lucille-ocr`
+
+**Java Class**: `com.kmwllc.lucille.ocr.stage.ApplyOCR`
+
+Source: [ApplyOCR.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-plugins/lucille-ocr/src/main/java/com/kmwllc/lucille/ocr/stage/ApplyOCR.java)
+
+## Installation
+
+### Maven Dependency
+
+```xml
+<dependency>
+  <groupId>com.kmwllc</groupId>
+  <artifactId>lucille-ocr</artifactId>
+  <version>${lucille.version}</version>
+</dependency>
+```
+
+### Tesseract Installation
+
+Tesseract must be installed on the system:
+
+<Tabs>
+  <Tab title="Ubuntu/Debian">
+    ```bash
+    sudo apt-get update
+    sudo apt-get install tesseract-ocr
+    sudo apt-get install tesseract-ocr-eng  # English
+    ```
+  </Tab>
+  
+  <Tab title="macOS">
+    ```bash
+    brew install tesseract
+    brew install tesseract-lang  # Additional languages
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    Download installer from [Tesseract GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+  </Tab>
+</Tabs>
+
+### Language Data
+
+Place Tesseract language data in a `TesseractOcr` directory:
+
+```bash
+mkdir -p TesseractOcr
+cd TesseractOcr
+wget https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata
+```
+
+## Configuration
+
+### Basic Full-Page Extraction
+
+```hocon
+stage {
+  class: "com.kmwllc.lucille.ocr.stage.ApplyOCR"
+  lang: "eng"
+  pathField: "image_path"
+  extractAllDest: "ocr_text"
+}
+```
+
+### Template-Based Form Extraction
+
+```hocon
+stage {
+  class: "com.kmwllc.lucille.ocr.stage.ApplyOCR"
+  lang: "eng"
+  pathField: "form_path"
+  
+  extractionTemplates: [
+    {
+      name: "w2_form"
+      regions: [
+        {
+          x: 100
+          y: 200
+          width: 300
+          height: 50
+          dest: "employee_name"
+        },
+        {
+          x: 100
+          y: 300
+          width: 200
+          height: 40
+          dest: "ssn"
+        }
+      ]
+    }
+  ]
+  
+  pages: {
+    "0": "w2_form"
+  }
+}
+```
+
+## Parameters
+
+<ParamField path="lang" type="string" required>
+  Tesseract language code. Must match installed language data.
+  
+  **Examples**: `"eng"`, `"fra"`, `"deu"`, `"spa"`
+</ParamField>
+
+<ParamField path="pathField" type="string" required>
+  Document field containing the path to the image or PDF file. If the document lacks this field, it is skipped.
+</ParamField>
+
+<ParamField path="extractAllDest" type="string">
+  If specified, OCR is applied to the entire image and results are stored in this field.
+  
+  For PDFs, OCR is applied to each page separately, creating a multi-valued field.
+</ParamField>
+
+<ParamField path="extractionTemplates" type="FormTemplate[]">
+  List of form templates defining regions to extract. Each template contains:
+  
+  - `name` (string): Template identifier
+  - `regions` (Rectangle[]): List of regions to extract
+    - `x` (number): X coordinate in pixels
+    - `y` (number): Y coordinate in pixels
+    - `width` (number): Region width in pixels
+    - `height` (number): Region height in pixels
+    - `dest` (string): Destination field for extracted text
+</ParamField>
+
+<ParamField path="pages" type="Map<Integer, String>">
+  Static mapping from page numbers to template names. Page 0 represents the only page for non-PDF files.
+  
+  **Example**: `{"0": "w2_form", "1": "w2_form", "2": "summary_page"}`
+</ParamField>
+
+<ParamField path="pagesField" type="string">
+  Document field containing a JSON string that dynamically maps page numbers to template names.
+  
+  Allows different documents to specify their own page-template mappings. Dynamic mappings override static ones.
+  
+  **Example JSON**: `{"0": "invoice", "1": "terms"}`
+</ParamField>
+
+## Features
+
+### Full-Page Text Extraction
+
+Extract all text from an image or PDF:
+
+```hocon
+extractAllDest: "full_text"
+```
+
+**For images**: Single-valued field with extracted text
+
+**For PDFs**: Multi-valued field with one entry per page
+
+### Template-Based Form Extraction
+
+Extract specific regions from structured forms:
+
+```hocon
+extractionTemplates: [
+  {
+    name: "invoice"
+    regions: [
+      {x: 50, y: 100, width: 200, height: 30, dest: "invoice_number"},
+      {x: 50, y: 150, width: 200, height: 30, dest: "invoice_date"},
+      {x: 50, y: 500, width: 150, height: 40, dest: "total_amount"}
+    ]
+  }
+]
+```
+
+Regions are extracted separately and stored in their respective destination fields.
+
+### PDF Support
+
+PDFs are automatically detected by file extension:
+
+- Each page is rendered to an image at 300 DPI
+- OCR is applied to each page
+- Results are combined into multi-valued fields
+
+### Static and Dynamic Template Assignment
+
+<Tabs>
+  <Tab title="Static Assignment">
+    Define in configuration:
+    ```hocon
+    pages: {
+      "0": "form_template"
+      "1": "form_template"
+      "2": "signature_page"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Dynamic Assignment">
+    Include in document:
+    ```hocon
+    pagesField: "template_mapping"
+    ```
+    
+    Document contains:
+    ```json
+    {
+      "id": "doc1",
+      "template_mapping": "{\"0\": \"w2\", \"1\": \"w2\"}"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Combined">
+    Dynamic mappings override static:
+    ```hocon
+    pages: {"0": "default_template"}
+    pagesField: "custom_mapping"
+    ```
+    
+    If document has `custom_mapping`, it takes precedence.
+  </Tab>
+</Tabs>
+
+## Example Configurations
+
+<Accordion title="Simple image text extraction">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.ocr.stage.ApplyOCR"
+      lang: "eng"
+      pathField: "file_path"
+      extractAllDest: "ocr_content"
+    }
+  ]
+}
+```
+</Accordion>
+
+<Accordion title="W-2 tax form extraction">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.ocr.stage.ApplyOCR"
+      lang: "eng"
+      pathField: "pdf_path"
+      
+      extractionTemplates: [
+        {
+          name: "w2"
+          regions: [
+            {x: 200, y: 150, width: 400, height: 50, dest: "employer_name"},
+            {x: 200, y: 250, width: 300, height: 40, dest: "employee_ssn"},
+            {x: 650, y: 350, width: 150, height: 40, dest: "wages"},
+            {x: 650, y: 400, width: 150, height: 40, dest: "federal_tax"}
+          ]
+        }
+      ]
+      
+      pages: {
+        "0": "w2"
+      }
+    }
+  ]
+}
+```
+</Accordion>
+
+<Accordion title="Multi-page invoice with dynamic templates">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.ocr.stage.ApplyOCR"
+      lang: "eng"
+      pathField: "invoice_pdf"
+      pagesField: "page_templates"
+      extractAllDest: "full_invoice_text"
+      
+      extractionTemplates: [
+        {
+          name: "invoice_header"
+          regions: [
+            {x: 100, y: 100, width: 300, height: 40, dest: "invoice_number"},
+            {x: 500, y: 100, width: 200, height: 40, dest: "invoice_date"}
+          ]
+        },
+        {
+          name: "invoice_summary"
+          regions: [
+            {x: 600, y: 700, width: 150, height: 50, dest: "total"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Document includes:
+```json
+{
+  "invoice_pdf": "/data/invoice-1234.pdf",
+  "page_templates": "{\"0\": \"invoice_header\", \"1\": \"invoice_summary\"}"
+}
+```
+</Accordion>
+
+<Accordion title="Multi-language extraction">
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.ocr.stage.ApplyOCR"
+      lang: "fra"  # French
+      pathField: "document_path"
+      extractAllDest: "text_french"
+    }
+  ]
+}
+```
+</Accordion>
+
+## Coordinate System
+
+Template regions use pixel coordinates:
+
+- **Origin**: Top-left corner (0, 0)
+- **X axis**: Increases to the right
+- **Y axis**: Increases downward
+- **Resolution**: 300 DPI for PDFs
+
+```
+(0,0) -------- X ------>
+  |
+  |
+  Y
+  |
+  v
+  
+  Region: {x: 100, y: 200, width: 300, height: 50}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use high-quality images">
+    OCR accuracy depends on image quality:
+    - Minimum 300 DPI resolution
+    - Clear, high-contrast text
+    - Minimal skew or rotation
+    - Good lighting (for scanned documents)
+  </Accordion>
+
+  <Accordion title="Test template coordinates carefully">
+    - Use an image viewer to determine exact pixel coordinates
+    - Account for page margins and headers
+    - Test with multiple sample documents
+    - Handle slight variations in form layout
+  </Accordion>
+
+  <Accordion title="Choose the right language model">
+    - Install language-specific trained data
+    - Use `eng` for English, `fra` for French, etc.
+    - For mixed languages, consider running multiple OCR stages
+  </Accordion>
+
+  <Accordion title="Handle PDF multi-page results">
+    When using `extractAllDest` with PDFs:
+    - Field becomes multi-valued (one per page)
+    - Use `SetField` or `Join` stages to combine if needed
+    - Or process pages individually with templates
+  </Accordion>
+
+  <Accordion title="Clean up temp files">
+    The stage creates temporary files in `lucille-ocr-temp/`:
+    - Files are cleaned up automatically
+    - Monitor disk space for high-volume processing
+    - Consider separate temp directory for production
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Tesseract not found">
+    ```
+    Unable to load tesseract model: eng
+    ```
+    
+    **Solution**:
+    - Verify Tesseract is installed: `tesseract --version`
+    - Check language data exists in `TesseractOcr/` directory
+    - Download from: https://github.com/tesseract-ocr/tessdata
+  </Accordion>
+
+  <Accordion title="Poor OCR accuracy">
+    **Causes**:
+    - Low image resolution (< 300 DPI)
+    - Poor contrast or lighting
+    - Skewed or rotated text
+    - Wrong language model
+    
+    **Solutions**:
+    - Pre-process images to improve quality
+    - Use higher resolution scans
+    - Apply deskewing before OCR
+    - Verify correct language is selected
+  </Accordion>
+
+  <Accordion title="Empty extraction results">
+    **Causes**:
+    - Incorrect template coordinates
+    - Page number mismatch
+    - Template not assigned to page
+    
+    **Solutions**:
+    - Verify coordinates with image viewer
+    - Check page numbering (starts at 0)
+    - Ensure template name matches configuration
+    - Test with `extractAllDest` first to confirm OCR works
+  </Accordion>
+
+  <Accordion title="PDF rendering issues">
+    ```
+    Error while loading file: IOException
+    ```
+    
+    **Solutions**:
+    - Verify PDF is not corrupted
+    - Check file permissions
+    - Ensure sufficient disk space for rendering
+    - Try converting PDF to images first
+  </Accordion>
+</AccordionGroup>
+
+## Performance Considerations
+
+- **CPU intensive**: OCR is computationally expensive
+- **Temp files**: Creates temporary PNG files during processing
+- **Memory**: PDF rendering requires significant memory
+- **Parallelism**: Stage can run in parallel across workers
+
+**Optimization tips**:
+- Process small batches of documents
+- Use multiple workers for parallel processing
+- Monitor CPU and disk I/O
+- Consider pre-processing images to optimal size
+
+## See Also
+
+- [Tika Plugin](/api/plugins/tika) - Extract text from documents
+- [Plugins Overview](/api/plugins/overview)
+- [Tesseract OCR Documentation](https://github.com/tesseract-ocr/tesseract)

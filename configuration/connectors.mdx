@@ -1,0 +1,492 @@
+---
+title: Connector Configuration
+description: Configure data sources to ingest documents into Lucille
+---
+
+Connectors read data from various sources and emit Documents to be processed by pipelines. Each connector is executed in sequence as part of a Lucille run.
+
+## Connector Structure
+
+Connectors are defined as a list in the configuration file:
+
+```hocon
+connectors: [
+  {
+    name: "connector1"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "pipeline1"
+    # connector-specific settings...
+  },
+  {
+    name: "connector2"
+    class: "com.kmwllc.lucille.connector.CSVConnector"
+    pipeline: "pipeline2"
+    # connector-specific settings...
+  }
+]
+```
+
+## Common Parameters
+
+All connectors support these base parameters:
+
+<ParamField path="name" type="string" required>
+  Name to assign to this connector for logging and console output
+</ParamField>
+
+<ParamField path="class" type="string" required>
+  Fully qualified class name of the connector implementation
+</ParamField>
+
+<ParamField path="pipeline" type="string" required>
+  Name of the pipeline that will process this connector's output
+</ParamField>
+
+## FileConnector
+
+Traverses local and cloud storage (S3, GCP, Azure) and publishes a Document for each file encountered.
+
+### Basic Configuration
+
+```hocon
+connectors: [
+  {
+    name: "file-ingest"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "file-processing"
+    paths: ["/path/to/files", "s3://my-bucket/prefix"]
+  }
+]
+```
+
+### Parameters
+
+<ParamField path="paths" type="list<string>" required>
+  Paths or URIs to traverse. Supports local paths and cloud storage URIs.
+  
+  **Note**: S3 URIs must be percent-encoded. Use `s3://test/folder%20with%20spaces` for paths with special characters.
+</ParamField>
+
+### Filter Options
+
+Control which files are processed:
+
+<ParamField path="filterOptions.includes" type="list<string>">
+  Regex patterns to include files
+  
+  ```hocon
+  filterOptions: {
+    includes: [".*\\.pdf$", ".*\\.docx$"]
+  }
+  ```
+</ParamField>
+
+<ParamField path="filterOptions.excludes" type="list<string>">
+  Regex patterns to exclude files
+  
+  ```hocon
+  filterOptions: {
+    excludes: [".*\\.DS_Store$", ".*\\.tmp$"]
+  }
+  ```
+</ParamField>
+
+<ParamField path="filterOptions.lastModifiedCutoff" type="duration">
+  Include only files modified within this period
+  
+  ```hocon
+  filterOptions: {
+    lastModifiedCutoff: "3d"  # Last 3 days
+  }
+  ```
+</ParamField>
+
+<ParamField path="filterOptions.lastPublishedCutoff" type="duration">
+  Include only files not published within this period. Requires `state` configuration.
+  
+  ```hocon
+  filterOptions: {
+    lastPublishedCutoff: "6h"  # Not published in last 6 hours
+  }
+  ```
+</ParamField>
+
+### File Options
+
+<ParamField path="fileOptions.getFileContent" type="boolean" default="true">
+  Fetch file content during traversal
+</ParamField>
+
+<ParamField path="fileOptions.handleArchivedFiles" type="boolean" default="false">
+  Process files inside archive containers (zip, tar, etc.)
+</ParamField>
+
+<ParamField path="fileOptions.handleCompressedFiles" type="boolean" default="false">
+  Process compressed files (gzip, etc.)
+</ParamField>
+
+<ParamField path="fileOptions.moveToAfterProcessing" type="string">
+  URI to move files after successful processing. Only works with single input path.
+  
+  ```hocon
+  fileOptions: {
+    moveToAfterProcessing: "/path/to/processed/"
+  }
+  ```
+</ParamField>
+
+<ParamField path="fileOptions.moveToErrorFolder" type="string">
+  URI to move files if processing fails. Only works with single input path.
+</ParamField>
+
+### State Management
+
+Track file publish times to avoid reprocessing:
+
+<Tabs>
+  <Tab title="Embedded Database">
+    ```hocon
+    state {
+      # Uses H2 embedded database by default
+      driver: "org.h2.Driver"
+      connectionString: "jdbc:h2:./state/my-connector"
+      jdbcUser: ""
+      jdbcPassword: ""
+      tableName: "file_state"
+      performDeletions: true
+      pathLength: 200
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Derby Database">
+    ```hocon
+    state {
+      driver: "org.apache.derby.iapi.jdbc.AutoloadedDriver"
+      connectionString: "jdbc:derby:lucille_state;"
+      jdbcUser: ""
+      jdbcPassword: ""
+      
+      # Disable automatic deletion tracking
+      performDeletions: false
+    }
+    ```
+  </Tab>
+  
+  <Tab title="External Database">
+    ```hocon
+    state {
+      driver: "org.postgresql.Driver"
+      connectionString: ${DATABASE_URL}
+      jdbcUser: ${DB_USER}
+      jdbcPassword: ${DB_PASSWORD}
+      tableName: "lucille_file_state"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="state.driver" type="string" default="org.h2.Driver">
+  JDBC driver class
+</ParamField>
+
+<ParamField path="state.connectionString" type="string">
+  JDBC connection string. Defaults to `jdbc:h2:./state/{CONNECTOR_NAME}` if omitted.
+</ParamField>
+
+<ParamField path="state.jdbcUser" type="string" default="">
+  Database username
+</ParamField>
+
+<ParamField path="state.jdbcPassword" type="string" default="">
+  Database password
+</ParamField>
+
+<ParamField path="state.tableName" type="string">
+  Table name for state tracking. Defaults to connector name.
+</ParamField>
+
+<ParamField path="state.performDeletions" type="boolean" default="true">
+  Delete rows for files removed from storage
+</ParamField>
+
+<ParamField path="state.pathLength" type="number" default="200">
+  Maximum length for stored file paths when Lucille creates the table
+</ParamField>
+
+### Cloud Storage Configuration
+
+<Tabs>
+  <Tab title="AWS S3">
+    ```hocon
+    s3 {
+      # Use default credentials if not specified
+      accessKeyId: ${?AWS_ACCESS_KEY_ID}
+      secretAccessKey: ${?AWS_SECRET_ACCESS_KEY}
+      region: ${?AWS_DEFAULT_REGION}
+      
+      # Max file references in memory
+      maxNumOfPages: 100
+    }
+    ```
+    
+    <ParamField path="s3.accessKeyId" type="string">
+      AWS access key ID. Omit to use default credentials.
+    </ParamField>
+    
+    <ParamField path="s3.secretAccessKey" type="string">
+      AWS secret access key. Omit to use default credentials.
+    </ParamField>
+    
+    <ParamField path="s3.region" type="string">
+      AWS region for S3
+    </ParamField>
+    
+    <ParamField path="s3.maxNumOfPages" type="number" default="100">
+      Maximum number of file references to hold in memory
+    </ParamField>
+  </Tab>
+  
+  <Tab title="Azure Blob">
+    ```hocon
+    # Option 1: Connection String
+    azure {
+      connectionString: ${?AZURE_CONNECTION_STRING}
+      maxNumOfPages: 100
+    }
+    
+    # Option 2: Account Name and Key
+    azure {
+      accountName: ${?AZURE_ACCOUNT_NAME}
+      accountKey: ${?AZURE_ACCOUNT_KEY}
+      maxNumOfPages: 100
+    }
+    ```
+    
+    <ParamField path="azure.connectionString" type="string">
+      Azure connection string (alternative to accountName/accountKey)
+    </ParamField>
+    
+    <ParamField path="azure.accountName" type="string">
+      Azure account name
+    </ParamField>
+    
+    <ParamField path="azure.accountKey" type="string">
+      Azure account key
+    </ParamField>
+    
+    <ParamField path="azure.maxNumOfPages" type="number" default="100">
+      Maximum number of file references to hold in memory
+    </ParamField>
+  </Tab>
+  
+  <Tab title="Google Cloud">
+    ```hocon
+    gcp {
+      pathToServiceKey: ${?GCP_SERVICE_KEY_PATH}
+      maxNumOfPages: 100
+    }
+    ```
+    
+    <ParamField path="gcp.pathToServiceKey" type="string" required>
+      Path to the Google Cloud service key JSON file
+    </ParamField>
+    
+    <ParamField path="gcp.maxNumOfPages" type="number" default="100">
+      Maximum number of file references to hold in memory
+    </ParamField>
+  </Tab>
+</Tabs>
+
+### File Handlers
+
+Configure custom handling for specific file types:
+
+```hocon
+fileOptions: {
+  csv {
+    docIdPrefix: "csvHandled-"
+    filenameField: "file_name"
+  }
+}
+```
+
+<ParamField path="fileHandlers" type="object">
+  Map of file type to handler configuration. Supports `csv`, `json`, `xml`.
+  
+  Supply a `class` property to override the default handler.
+</ParamField>
+
+### Complete Example
+
+<CodeGroup>
+```hocon Basic File Connector
+connectors: [
+  {
+    name: "local-files"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "file-pipeline"
+    paths: ["/data/documents"]
+    
+    filterOptions: {
+      excludes: [".*\\.DS_Store$"]
+      lastModifiedCutoff: "7d"
+    }
+  }
+]
+```
+
+```hocon S3 with State Tracking
+connectors: [
+  {
+    name: "s3-connector"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "cloud-pipeline"
+    paths: ["s3://my-bucket/documents/"]
+    
+    s3 {
+      accessKeyId: ${?AWS_ACCESS_KEY_ID}
+      secretAccessKey: ${?AWS_SECRET_ACCESS_KEY}
+      region: "us-east-1"
+    }
+    
+    state {
+      connectionString: "jdbc:h2:./state/s3-connector"
+      performDeletions: true
+    }
+    
+    filterOptions: {
+      lastPublishedCutoff: "1h"
+    }
+  }
+]
+```
+
+```hocon CSV File Handler
+connectors: [
+  {
+    name: "csv-files"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "csv-pipeline"
+    paths: ["/data/csv"]
+    
+    fileOptions: {
+      csv {
+        docIdPrefix: "csv-"
+        filenameField: "source_file"
+      }
+    }
+  }
+]
+```
+</CodeGroup>
+
+## CSVConnector (Deprecated)
+
+<Warning>
+  CSVConnector is deprecated. Use FileConnector with CSVFileHandler instead.
+</Warning>
+
+Produces documents from a CSV file.
+
+```hocon
+connectors: [
+  {
+    name: "csv-legacy"
+    class: "com.kmwllc.lucille.connector.CSVConnector"
+    pipeline: "csv-pipeline"
+    path: "/path/to/file.csv"
+    
+    # Optional parameters
+    lineNumberField: "row_number"
+    filenameField: "filename"
+    filePathField: "filepath"
+    idField: "doc_id"
+    separatorChar: ","
+    useTabs: false
+    interpretQuotes: true
+    lowercaseFields: true
+    
+    # Move after processing
+    moveToAfterProcessing: "/processed/"
+    moveToErrorFolder: "/errors/"
+  }
+]
+```
+
+## SequenceConnector
+
+Generates a sequence of numbered documents for testing:
+
+```hocon
+connectors: [
+  {
+    name: "test-sequence"
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    pipeline: "test-pipeline"
+    numDocs: 1000
+  }
+]
+```
+
+## JSONConnector
+
+Reads documents from JSON files:
+
+```hocon
+connectors: [
+  {
+    name: "json-ingest"
+    class: "com.kmwllc.lucille.connector.JSONConnector"
+    pipeline: "json-pipeline"
+    path: "/path/to/data.json"
+  }
+]
+```
+
+## SolrConnector
+
+Queries Solr and creates documents from results:
+
+```hocon
+connectors: [
+  {
+    name: "solr-source"
+    class: "com.kmwllc.lucille.connector.SolrConnector"
+    pipeline: "migration-pipeline"
+    solrUrl: "http://localhost:8983/solr/source-collection"
+    query: "*:*"
+    rows: 100
+  }
+]
+```
+
+## KafkaConnector
+
+Consumes documents from a Kafka topic:
+
+```hocon
+connectors: [
+  {
+    name: "kafka-source"
+    class: "com.kmwllc.lucille.connector.KafkaConnector"
+    pipeline: "streaming-pipeline"
+    topic: "input-topic"
+  }
+]
+```
+
+<Note>
+  KafkaConnector requires Kafka configuration in the `kafka` section. See [Kafka Configuration](/configuration/kafka).
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build Pipelines" icon="diagram-project" href="/configuration/pipelines">
+    Create processing stages for documents
+  </Card>
+  <Card title="File Handlers" icon="file-code" href="/core-concepts/file-handlers">
+    Learn about specialized file processing
+  </Card>
+</CardGroup>

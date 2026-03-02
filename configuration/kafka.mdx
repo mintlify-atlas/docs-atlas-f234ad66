@@ -1,0 +1,584 @@
+---
+title: Kafka Configuration
+description: Configure Lucille for distributed mode with Apache Kafka messaging
+---
+
+When Lucille runs in **hybrid** or **distributed** mode, components communicate through Apache Kafka topics. This enables horizontal scaling and fault tolerance.
+
+## Execution Modes
+
+Lucille supports three execution modes:
+
+<CardGroup cols={3}>
+  <Card title="Local Mode" icon="desktop">
+    All components (connectors, workers, indexer) run in a single JVM. No Kafka required.
+  </Card>
+  <Card title="Hybrid Mode" icon="diagram-next">
+    Runner in one process, workers/indexers in separate processes. Uses Kafka for communication.
+  </Card>
+  <Card title="Distributed Mode" icon="network-wired">
+    All components run as separate processes, communicating via Kafka. Fully scalable.
+  </Card>
+</CardGroup>
+
+<Note>
+  Kafka configuration is only required for **hybrid** and **distributed** modes.
+</Note>
+
+## Basic Kafka Configuration
+
+```hocon
+kafka {
+  bootstrapServers: "localhost:9092"
+  consumerGroupId: "lucille_workers"
+}
+```
+
+<ParamField path="kafka.bootstrapServers" type="string" required>
+  Comma-separated list of Kafka broker addresses
+  
+  ```hocon
+  kafka {
+    bootstrapServers: "broker1:9092,broker2:9092,broker3:9092"
+  }
+  ```
+</ParamField>
+
+<ParamField path="kafka.consumerGroupId" type="string" default="lucille_workers">
+  Consumer group ID that all Lucille workers belong to
+  
+  Workers in the same group share the load of processing documents.
+</ParamField>
+
+## Kafka Topics
+
+Lucille automatically creates and manages Kafka topics for document flow and event tracking.
+
+### Topic Types
+
+<Tabs>
+  <Tab title="Source Topics">
+    Documents to be processed by a pipeline:
+    
+    - **Default naming**: `{pipeline_name}_source`
+    - **Custom naming**: Use `kafka.sourceTopic`
+    
+    ```hocon
+    kafka {
+      sourceTopic: "pipeline1_source"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Event Topics">
+    Document processing status (success/failure):
+    
+    - **Default naming**: `{pipeline_name}_{run_id}_events`
+    - **Custom naming**: Use `kafka.eventTopic` (not recommended)
+    
+    ```hocon
+    kafka {
+      # WARNING: Use with caution
+      # Breaks workflow tracking in batch mode
+      eventTopic: "lucille_events"
+    }
+    ```
+    
+    <Warning>
+      Setting a custom `eventTopic` interferes with batch mode tracking because all runs share the same event topic instead of having distinct topics per pipeline/runId.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Source Topic Configuration
+
+<ParamField path="kafka.sourceTopic" type="string">
+  Custom name for the topic containing documents to be processed
+  
+  If not set, defaults to `{pipeline_name}_source`.
+</ParamField>
+
+### Event Topic Configuration
+
+<ParamField path="kafka.eventTopic" type="string">
+  Custom name for the event topic
+  
+  <Warning>
+    **USE WITH CAUTION**: This property should be omitted from most Lucille configs.
+    
+    When absent, Lucille creates a distinct event topic for each pipeline/runId, which is necessary for proper workflow tracking in batch mode. By specifying this property, a single event topic will be used independent of pipeline or runId, which interferes with tracking the status of any particular run.
+    
+    This setting can be safely used in **streaming mode** when a Worker/WorkerIndexer is reading directly from Kafka.
+  </Warning>
+</ParamField>
+
+<ParamField path="kafka.events" type="boolean" default="true">
+  Enable/disable sending document success/failure events to Kafka
+  
+  ```hocon
+  kafka {
+    events: false  # Disable event tracking
+  }
+  ```
+</ParamField>
+
+## Performance Settings
+
+<ParamField path="kafka.maxPollIntervalSecs" type="number" default="600">
+  Maximum time (in seconds) allowed between Kafka polls before a consumer is evicted from the consumer group
+  
+  Increase this if processing individual documents takes a long time:
+  
+  ```hocon
+  kafka {
+    maxPollIntervalSecs: 1200  # 20 minutes
+  }
+  ```
+</ParamField>
+
+<ParamField path="kafka.maxRequestSize" type="number" default="250000000">
+  Maximum size of Kafka requests in bytes (approximately 250 MB)
+  
+  Increase for large documents:
+  
+  ```hocon
+  kafka {
+    maxRequestSize: 500000000  # 500 MB
+  }
+  ```
+</ParamField>
+
+## Security Configuration
+
+<ParamField path="kafka.securityProtocol" type="string">
+  Security protocol to use for Kafka connections
+  
+  Common values:
+  - `PLAINTEXT` - No encryption (default)
+  - `SSL` - TLS encryption
+  - `SASL_PLAINTEXT` - SASL authentication without encryption
+  - `SASL_SSL` - SASL authentication with TLS
+  
+  ```hocon
+  kafka {
+    securityProtocol: "SSL"
+  }
+  ```
+</ParamField>
+
+## Custom Serializers and Deserializers
+
+<ParamField path="kafka.documentSerializer" type="string">
+  Custom serializer class for documents
+  
+  Defaults to `com.kmwllc.lucille.message.KafkaDocumentSerializer`. Only set if you need a custom serializer.
+  
+  ```hocon
+  kafka {
+    documentSerializer: "com.example.CustomDocumentSerializer"
+  }
+  ```
+</ParamField>
+
+<ParamField path="kafka.documentDeserializer" type="string">
+  Custom deserializer class for documents
+  
+  Defaults to `com.kmwllc.lucille.message.KafkaDocumentDeserializer`. Only set if you need a custom deserializer.
+  
+  ```hocon
+  kafka {
+    documentDeserializer: "com.example.CustomDocumentDeserializer"
+  }
+  ```
+</ParamField>
+
+## Property Files
+
+For advanced Kafka configuration, you can provide external property files:
+
+<ParamField path="kafka.consumerPropertyFile" type="string">
+  Path to Kafka consumer properties file
+  
+  ```hocon
+  kafka {
+    consumerPropertyFile: "/etc/lucille/kafka-consumer.properties"
+  }
+  ```
+</ParamField>
+
+<ParamField path="kafka.producerPropertyFile" type="string">
+  Path to Kafka producer properties file
+  
+  ```hocon
+  kafka {
+    producerPropertyFile: "/etc/lucille/kafka-producer.properties"
+  }
+  ```
+</ParamField>
+
+<ParamField path="kafka.adminPropertyFile" type="string">
+  Path to Kafka admin client properties file
+  
+  ```hocon
+  kafka {
+    adminPropertyFile: "/etc/lucille/kafka-admin.properties"
+  }
+  ```
+</ParamField>
+
+## ZooKeeper Configuration
+
+Required when using `worker.maxRetries` to track document retry attempts:
+
+```hocon
+worker {
+  maxRetries: 2
+}
+
+zookeeper {
+  connectString: "localhost:2181"
+}
+```
+
+<ParamField path="zookeeper.connectString" type="string">
+  Connection string for ZooKeeper ensemble
+  
+  ```hocon
+  zookeeper {
+    connectString: "zk1:2181,zk2:2181,zk3:2181"
+  }
+  ```
+</ParamField>
+
+## Complete Examples
+
+<Tabs>
+  <Tab title="Basic Distributed">
+    ```hocon
+    # Simple distributed setup with local Kafka
+    kafka {
+      bootstrapServers: "localhost:9092"
+      consumerGroupId: "lucille_workers"
+      maxPollIntervalSecs: 600
+    }
+    
+    worker {
+      pipeline: "main-pipeline"
+      threads: 4
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Production Cluster">
+    ```hocon
+    # Production Kafka cluster with SSL
+    kafka {
+      bootstrapServers: "kafka1:9092,kafka2:9092,kafka3:9092"
+      consumerGroupId: "lucille_production"
+      
+      # Security
+      securityProtocol: "SSL"
+      
+      # Performance
+      maxPollIntervalSecs: 1200  # 20 minutes for large docs
+      maxRequestSize: 500000000   # 500 MB
+      
+      # Custom topics
+      sourceTopic: "documents_to_process"
+      
+      # Property files for advanced SSL config
+      consumerPropertyFile: "/etc/lucille/consumer.properties"
+      producerPropertyFile: "/etc/lucille/producer.properties"
+      adminPropertyFile: "/etc/lucille/admin.properties"
+    }
+    
+    worker {
+      pipeline: "main-pipeline"
+      threads: 8
+      maxProcessingSecs: 900  # 15 minutes
+      maxRetries: 3
+      enableHeartbeat: true
+    }
+    
+    zookeeper {
+      connectString: "zk1:2181,zk2:2181,zk3:2181"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Streaming Mode">
+    ```hocon
+    # Worker reading directly from external Kafka topic
+    kafka {
+      bootstrapServers: "kafka:9092"
+      consumerGroupId: "lucille_streaming"
+      
+      # Safe to use custom event topic in streaming mode
+      eventTopic: "lucille_events"
+      
+      # Read from external topic
+      sourceTopic: "external_data_stream"
+    }
+    
+    worker {
+      pipeline: "streaming-pipeline"
+      threads: 4
+    }
+    ```
+  </Tab>
+  
+  <Tab title="High Throughput">
+    ```hocon
+    # Optimized for high-volume processing
+    kafka {
+      bootstrapServers: "kafka1:9092,kafka2:9092,kafka3:9092"
+      consumerGroupId: "lucille_batch_workers"
+      
+      # Large messages
+      maxRequestSize: 1000000000  # 1 GB
+      
+      # Extended processing time
+      maxPollIntervalSecs: 1800  # 30 minutes
+    }
+    
+    worker {
+      pipeline: "batch-pipeline"
+      threads: 16  # Many parallel workers
+      maxProcessingSecs: 1200
+    }
+    
+    publisher {
+      # High capacity for in-flight documents
+      maxPendingDocs: 100000
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Publisher Configuration
+
+The Publisher manages document flow between connectors and workers:
+
+<ParamField path="publisher.queueCapacity" type="number" default="10000">
+  Maximum queue capacity in **local mode**:
+  - Queue of published documents waiting to be processed
+  - Queue of completed documents waiting to be indexed
+  
+  Each queue can contain this many documents. Affects memory footprint.
+  
+  ```hocon
+  publisher {
+    queueCapacity: 20000  # Increase for better throughput
+  }
+  ```
+</ParamField>
+
+<ParamField path="publisher.maxPendingDocs" type="number">
+  Maximum pending documents in **hybrid/distributed mode**
+  
+  <Warning>
+    Only use when Runner is a separate process from Workers/Indexer. Do NOT use in local mode (where `queueCapacity` controls this).
+  </Warning>
+  
+  Causes publication to wait until pending docs fall below this max. This is a non-strict limit and can be exceeded by the number of threads calling publish().
+  
+  ```hocon
+  publisher {
+    maxPendingDocs: 80000
+  }
+  ```
+</ParamField>
+
+## Distributed Mode Architecture
+
+```
+┌─────────────┐
+│   Runner    │ ──┐
+│ (Connector) │   │
+└─────────────┘   │
+                  ├─► Kafka Topic: pipeline1_source
+┌─────────────┐   │
+│   Worker 1  │ ◄─┤
+│ (Pipeline)  │   │
+└─────────────┘   │
+                  │
+┌─────────────┐   │
+│   Worker 2  │ ◄─┤
+│ (Pipeline)  │   │
+└─────────────┘   │
+                  │
+┌─────────────┐   │
+│   Worker 3  │ ◄─┤
+│ (Pipeline)  │   │
+└─────────────┘   │
+                  │
+                  ├─► Kafka Topic: pipeline1_{runId}_events
+                  │
+┌─────────────┐   │
+│   Indexer   │ ◄─┘
+└─────────────┘
+```
+
+### Component Responsibilities
+
+<AccordionGroup>
+  <Accordion title="Runner">
+    - Executes connectors to publish documents
+    - Publishes documents to Kafka source topic
+    - Tracks completion via Kafka event topic
+    - Outputs run summary when complete
+    
+    Launched with: `java -jar lucille.jar run config.conf`
+  </Accordion>
+  
+  <Accordion title="Workers">
+    - Subscribe to Kafka source topic
+    - Process documents through pipeline stages
+    - Send processed documents to indexer
+    - Publish success/failure events
+    
+    Must specify `worker.pipeline` in config.
+    
+    Launched with: `java -jar lucille.jar worker config.conf`
+  </Accordion>
+  
+  <Accordion title="Indexer">
+    - Receives processed documents from workers
+    - Batches and sends to search engine
+    - Publishes completion events to Kafka
+    
+    Launched with: `java -jar lucille.jar indexer config.conf`
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Consumer evicted from group">
+    **Error**: Consumer is not subscribed to the topic or partition does not exist
+    
+    **Cause**: `maxPollIntervalSecs` is too short for document processing time
+    
+    **Solution**: Increase the timeout:
+    ```hocon
+    kafka {
+      maxPollIntervalSecs: 1200  # 20 minutes
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Message too large">
+    **Error**: The message is too large
+    
+    **Cause**: Document exceeds `maxRequestSize`
+    
+    **Solution**: Increase the limit:
+    ```hocon
+    kafka {
+      maxRequestSize: 500000000  # 500 MB
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="No workers processing">
+    **Symptoms**: Documents published but not processed
+    
+    **Checklist**:
+    1. Verify workers are running: `ps aux | grep lucille`
+    2. Check `worker.pipeline` matches a configured pipeline
+    3. Verify `kafka.bootstrapServers` is accessible
+    4. Check Kafka consumer group: `kafka-consumer-groups.sh --describe --group lucille_workers`
+  </Accordion>
+  
+  <Accordion title="Duplicate processing">
+    **Cause**: Workers in different consumer groups
+    
+    **Solution**: Ensure all workers use the same `consumerGroupId`:
+    ```hocon
+    kafka {
+      consumerGroupId: "lucille_workers"  # Same for all workers
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Tuning
+
+<Tabs>
+  <Tab title="Throughput">
+    Optimize for maximum document throughput:
+    
+    ```hocon
+    kafka {
+      maxRequestSize: 1000000000  # Large messages
+      maxPollIntervalSecs: 1800   # Extended timeout
+    }
+    
+    worker {
+      threads: 16  # Many parallel workers
+    }
+    
+    publisher {
+      maxPendingDocs: 100000  # High capacity
+    }
+    
+    indexer {
+      batchSize: 500  # Large batches
+      batchTimeout: 10000  # Wait for full batches
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Latency">
+    Optimize for low-latency processing:
+    
+    ```hocon
+    kafka {
+      maxPollIntervalSecs: 300  # Shorter timeout
+    }
+    
+    worker {
+      threads: 4  # Fewer threads, less contention
+    }
+    
+    indexer {
+      batchSize: 50  # Small batches
+      batchTimeout: 1000  # Flush quickly
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Reliability">
+    Optimize for fault tolerance:
+    
+    ```hocon
+    kafka {
+      bootstrapServers: "kafka1:9092,kafka2:9092,kafka3:9092"
+      maxPollIntervalSecs: 1200
+    }
+    
+    worker {
+      threads: 4
+      maxRetries: 3  # Retry failed documents
+      exitOnTimeout: true
+      maxProcessingSecs: 900
+      enableHeartbeat: true  # Monitor liveness
+    }
+    
+    zookeeper {
+      connectString: "zk1:2181,zk2:2181,zk3:2181"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Running Lucille" icon="play" href="/getting-started/running">
+    Launch Lucille in different modes
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/operations/monitoring">
+    Monitor distributed deployments
+  </Card>
+</CardGroup>

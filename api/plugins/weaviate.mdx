@@ -1,0 +1,465 @@
+---
+title: "Weaviate Plugin"
+description: "Index documents and vectors to Weaviate object database"
+icon: "database"
+---
+
+## Overview
+
+The Weaviate plugin provides the `WeaviateIndexer`, which sends documents and optional vector embeddings to Weaviate's object-based vector database. It supports schema-based object storage, vector search, and property mapping.
+
+**Maven Module**: `lucille-weaviate`
+
+**Java Class**: `com.kmwllc.lucille.weaviate.indexer.WeaviateIndexer`
+
+Source: [WeaviateIndexer.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-plugins/lucille-weaviate/src/main/java/com/kmwllc/lucille/weaviate/indexer/WeaviateIndexer.java)
+
+## Installation
+
+Add the plugin dependency to your `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>com.kmwllc</groupId>
+  <artifactId>lucille-weaviate</artifactId>
+  <version>${lucille.version}</version>
+</dependency>
+```
+
+## Configuration
+
+### Basic Configuration
+
+```hocon
+indexer {
+  type: "weaviate"
+  
+  weaviate {
+    apiKey: "${WEAVIATE_API_KEY}"
+    host: "my-cluster.weaviate.network"
+    className: "Document"
+  }
+}
+```
+
+### With Vectors
+
+```hocon
+indexer {
+  type: "weaviate"
+  
+  weaviate {
+    apiKey: "${WEAVIATE_API_KEY}"
+    host: "weaviate.example.com"
+    className: "Article"
+    vectorField: "embedding"
+    idDestinationName: "original_id"
+  }
+}
+```
+
+## Parameters
+
+<ParamField path="apiKey" type="string" required>
+  Weaviate API key for authentication.
+  
+  **Best practice**: Use environment variable `${WEAVIATE_API_KEY}`
+</ParamField>
+
+<ParamField path="host" type="string" required>
+  Weaviate instance hostname (without protocol or port).
+  
+  **Example**: `"my-cluster.weaviate.network"`, `"localhost"`
+  
+  **Note**: Protocol is assumed to be `https`. Port defaults to standard.
+</ParamField>
+
+<ParamField path="className" type="string" default="Document">
+  Name of the Weaviate class (object type) in the schema.
+  
+  Must match a class defined in your Weaviate schema.
+  
+  **Example**: `"Article"`, `"Product"`, `"User"`
+</ParamField>
+
+<ParamField path="idDestinationName" type="string" default="id_original">
+  Property name to store the document's original ID.
+  
+  Weaviate requires UUIDs for object IDs. The indexer generates a UUID from the document ID and stores the original ID in this property.
+  
+  **Note**: `id` is a reserved property in Weaviate.
+</ParamField>
+
+<ParamField path="vectorField" type="string">
+  Document field containing vector embeddings to store with the object.
+  
+  If not specified, only document properties are indexed (no vectors).
+  
+  **Example**: `"embedding"`, `"vector"`
+</ParamField>
+
+## Features
+
+### UUID Generation
+
+Weaviate requires UUID identifiers. The indexer automatically generates UUIDs:
+
+```java
+String uuid = UUID.nameUUIDFromBytes(documentId.getBytes()).toString();
+```
+
+**Benefits**:
+- Deterministic: Same document ID always produces the same UUID
+- Idempotent: Re-indexing the same document updates it (doesn't duplicate)
+- Traceable: Original ID is preserved in `idDestinationName` property
+
+### Property Mapping
+
+All document fields (except `id` and `children`) are mapped to Weaviate properties:
+
+```java
+Map<String, Object> properties = doc.asMap();
+properties.remove(Document.ID_FIELD);
+properties.put(idDestinationName, doc.getId());
+```
+
+**Automatic**:
+- Document ID → UUID (object ID)
+- Document ID → `id_original` property (or custom name)
+- All other fields → Weaviate properties
+
+### Vector Support
+
+Optionally attach vector embeddings:
+
+```hocon
+vectorField: "embedding"
+```
+
+- Vector is extracted from the specified field
+- Stored with the object for similarity search
+- Vector field is removed from properties (not duplicated)
+
+### Batch Processing
+
+Documents are sent in batches using Weaviate's `ObjectsBatcher`:
+
+```java
+try (ObjectsBatcher batcher = client.batch().objectsBatcher()) {
+  for (Document doc : documents) {
+    batcher.withObject(weaviateObject);
+  }
+  Result<ObjectGetResponse[]> result = batcher
+    .withConsistencyLevel(ConsistencyLevel.ALL)
+    .run();
+}
+```
+
+**Consistency**: Uses `ConsistencyLevel.ALL` for strong consistency.
+
+### Error Handling
+
+The indexer tracks failed documents with detailed errors:
+
+```java
+for (ObjectGetResponse response : responses) {
+  ErrorResponse errorResponse = response.getResult().getErrors();
+  if (errorResponse != null) {
+    failedDocs.add(Pair.of(document, errorResponse.toString()));
+  }
+}
+```
+
+Partial batch failures are supported - other documents in the batch still succeed.
+
+## Connection Validation
+
+The indexer validates connectivity during startup:
+
+```java
+Result<Meta> meta = client.misc().metaGetter().run();
+```
+
+Logs Weaviate cluster information:
+- Hostname
+- Version
+- Available modules
+
+If validation fails, the pipeline will not start.
+
+## Example Configurations
+
+<Accordion title="Simple document indexing">
+```hocon
+indexer {
+  type: "weaviate"
+  batchSize: 100
+  
+  weaviate {
+    apiKey: "${WEAVIATE_API_KEY}"
+    host: "localhost"
+    className: "Document"
+    idDestinationName: "doc_id"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="With vector embeddings">
+```hocon
+indexer {
+  type: "weaviate"
+  batchSize: 200
+  
+  weaviate {
+    apiKey: "${WEAVIATE_API_KEY}"
+    host: "my-cluster.weaviate.network"
+    className: "Article"
+    vectorField: "text_embedding"
+    idDestinationName: "article_id"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Multi-tenant products">
+```hocon
+indexer {
+  type: "weaviate"
+  batchSize: 500
+  
+  weaviate {
+    apiKey: "${WEAVIATE_API_KEY}"
+    host: "products.weaviate.cloud"
+    className: "Product"
+    vectorField: "product_embedding"
+    idDestinationName: "product_sku"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="With field filtering">
+```hocon
+indexer {
+  type: "weaviate"
+  ignoreFields: ["_internal", "temp_data", "processing_metadata"]
+  batchSize: 100
+  
+  weaviate {
+    apiKey: "${WEAVIATE_API_KEY}"
+    host: "weaviate.example.com"
+    className: "Page"
+    vectorField: "embedding"
+  }
+}
+```
+</Accordion>
+
+## Schema Requirements
+
+Before indexing, define the class schema in Weaviate:
+
+```json
+{
+  "class": "Article",
+  "description": "News articles with embeddings",
+  "vectorizer": "none",
+  "properties": [
+    {
+      "name": "article_id",
+      "dataType": ["text"],
+      "description": "Original article ID"
+    },
+    {
+      "name": "title",
+      "dataType": ["text"]
+    },
+    {
+      "name": "content",
+      "dataType": ["text"]
+    },
+    {
+      "name": "published_date",
+      "dataType": ["date"]
+    }
+  ]
+}
+```
+
+**Important**: 
+- Class name must match `className` configuration
+- Include property for `idDestinationName`
+- Set `vectorizer: "none"` if providing your own vectors
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Create schema before indexing">
+    Define the Weaviate class schema first:
+    - Match property names to document fields
+    - Use appropriate data types (text, int, date, etc.)
+    - Set vectorizer to "none" if providing embeddings
+    - Include property for original document ID
+  </Accordion>
+
+  <Accordion title="Use descriptive class names">
+    Choose class names that reflect your data:
+    - `Article` for news articles
+    - `Product` for e-commerce
+    - `User` for user profiles
+    
+    Avoid generic names like `Document` for multiple types.
+  </Accordion>
+
+  <Accordion title="Store original IDs">
+    Always configure `idDestinationName`:
+    - Enables lookup by original ID
+    - Facilitates debugging
+    - Supports external system integration
+  </Accordion>
+
+  <Accordion title="Use ignoreFields for cleanup">
+    Exclude internal/temporary fields:
+    ```hocon
+    ignoreFields: ["_processing_time", "_internal_state"]
+    ```
+  </Accordion>
+
+  <Accordion title="Optimize batch size">
+    Default is 100 documents per batch:
+    - Increase to 200-500 for small documents
+    - Decrease for large documents or vectors
+    - Monitor Weaviate server performance
+  </Accordion>
+</AccordionGroup>
+
+## UUID Generation Details
+
+The indexer uses deterministic UUID generation:
+
+```java
+public static String generateDocumentUUID(Document document) {
+  return UUID.nameUUIDFromBytes(document.getId().getBytes()).toString();
+}
+```
+
+**Properties**:
+- **Deterministic**: Same input → same UUID
+- **Collision-resistant**: Different inputs → different UUIDs
+- **Idempotent**: Safe to reindex same document
+- **Standard**: Uses Java's UUID v3 (name-based)
+
+## Vector Handling
+
+When `vectorField` is specified:
+
+1. Extract vector from document field
+2. Convert to Float array
+3. Attach to Weaviate object
+4. Remove vector field from properties
+
+```java
+if (vectorField != null && doc.has(vectorField)) {
+  objectBuilder.vector(floatsToArray(doc.getFloatList(vectorField)));
+  docMap.remove(vectorField);
+}
+```
+
+**Note**: Vector must be a list of floats (`List<Float>`).
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Class not found error">
+    ```
+    Error occurred sending Documents to Weaviate
+    ```
+    
+    **Cause**: Weaviate class doesn't exist.
+    
+    **Solution**:
+    - Create the class in Weaviate first
+    - Verify `className` matches exactly (case-sensitive)
+    - Check schema with: `GET /v1/schema/{className}`
+  </Accordion>
+
+  <Accordion title="Property type mismatch">
+    **Cause**: Document field type doesn't match schema.
+    
+    **Solutions**:
+    - Update Weaviate schema to match document fields
+    - Transform fields in pipeline stages
+    - Use `ignoreFields` to exclude incompatible fields
+  </Accordion>
+
+  <Accordion title="Vector dimension mismatch">
+    ```
+    Error: vector dimension doesn't match
+    ```
+    
+    **Solutions**:
+    - Verify embedding model outputs correct dimension
+    - Check Weaviate class vectorizer configuration
+    - Ensure all vectors have same dimension
+  </Accordion>
+
+  <Accordion title="Authentication failed">
+    **Solutions**:
+    - Verify API key is correct
+    - Check environment variable is set: `echo $WEAVIATE_API_KEY`
+    - Confirm key has write permissions
+    - Test connection: `curl -H "Authorization: Bearer $API_KEY" https://host/v1/meta`
+  </Accordion>
+
+  <Accordion title="Connection timeout">
+    **Causes**:
+    - Network connectivity issues
+    - Weaviate server overloaded
+    - Incorrect host configuration
+    
+    **Solutions**:
+    - Verify host is accessible
+    - Check firewall rules
+    - Test manually: `curl https://host/v1/meta`
+    - Reduce batch size to lower server load
+  </Accordion>
+</AccordionGroup>
+
+## Weaviate Client Configuration
+
+The indexer creates a Weaviate client with:
+
+- **Protocol**: HTTPS
+- **Connection timeout**: 6 seconds
+- **Read timeout**: 6 seconds  
+- **Write timeout**: 6 seconds
+
+These are currently hardcoded but can be customized by extending the indexer.
+
+## No Deletion Support
+
+<Warning>
+  The WeaviateIndexer does not support deletion markers. Documents can only be upserted (created/updated).
+  
+  To delete objects, use Weaviate's API directly or implement a custom deletion stage.
+</Warning>
+
+## Child Documents
+
+Child documents (nested documents) are not currently supported:
+
+```java
+// Children are removed from the document map
+Map<String, Object> docMap = doc.asMap();
+docMap.remove(Document.ID_FIELD);
+// children field is not processed
+```
+
+Future versions may add support for Weaviate's reference properties.
+
+## See Also
+
+- [Pinecone Plugin](/api/plugins/pinecone) - Alternative vector database
+- [Indexers Overview](/api/indexers/overview)
+- [Weaviate Documentation](https://weaviate.io/developers/weaviate)

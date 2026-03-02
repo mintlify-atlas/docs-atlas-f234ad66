@@ -1,0 +1,646 @@
+---
+title: Documents
+description: Understanding the Document data structure - fields, types, metadata, and child documents
+---
+
+## Overview
+
+A **Document** is the fundamental unit of data in Lucille. Documents flow through Connectors, Pipelines, and Indexers, accumulating fields and transformations along the way before being indexed into search engines.
+
+```java
+public interface Document {
+    String ID_FIELD = "id";
+    String RUNID_FIELD = "run_id";
+    String CHILDREN_FIELD = ".children";
+    String DROP_FIELD = ".dropped";
+}
+```
+
+<Info>
+Documents are represented internally as JSON-like structures with named fields that can contain single or multi-valued data.
+</Info>
+
+## Document Structure
+
+### Required Fields
+
+Every document has a unique identifier:
+
+```java
+Document doc = Document.create("doc-12345");
+String id = doc.getId();  // "doc-12345"
+```
+
+### Reserved Fields
+
+Certain field names are reserved for internal use:
+
+<CardGroup cols={2}>
+  <Card title="id" icon="fingerprint">
+    Unique document identifier. Cannot be modified after creation.
+  </Card>
+  <Card title="run_id" icon="tag">
+    Identifier for the batch ingest that produced this document.
+  </Card>
+  <Card title=".children" icon="sitemap">
+    Internal storage for child documents. Not directly accessible.
+  </Card>
+  <Card title=".dropped" icon="ban">
+    Flag indicating document should not be indexed.
+  </Card>
+</CardGroup>
+
+<Note>
+Attempting to set or modify reserved fields (except via their dedicated methods) throws `IllegalArgumentException`.
+</Note>
+
+## Creating Documents
+
+Multiple ways to create documents:
+
+### From ID
+
+```java
+Document doc = Document.create("article-123");
+```
+
+### From ID and Run ID
+
+```java
+Document doc = Document.create("article-123", "run-abc-def");
+```
+
+### From JSON String
+
+```java
+String json = "{\"id\":\"article-123\",\"title\":\"Hello World\"}";
+Document doc = Document.createFromJson(json);
+```
+
+### From JSON with ID Transformation
+
+```java
+Document doc = Document.createFromJson(json, id -> "prefix-" + id);
+```
+
+### From JSON ObjectNode
+
+```java
+ObjectNode node = mapper.createObjectNode();
+node.put("id", "article-123");
+node.put("title", "Hello World");
+Document doc = Document.create(node);
+```
+
+## Supported Field Types
+
+Documents support a rich set of data types:
+
+<Accordion title="String">
+```java
+doc.setField("title", "Introduction to Lucille");
+String title = doc.getString("title");
+```
+</Accordion>
+
+<Accordion title="Boolean">
+```java
+doc.setField("published", true);
+Boolean published = doc.getBoolean("published");
+```
+</Accordion>
+
+<Accordion title="Integer">
+```java
+doc.setField("views", 1000);
+Integer views = doc.getInt("views");
+```
+</Accordion>
+
+<Accordion title="Long">
+```java
+doc.setField("user_id", 12345678901L);
+Long userId = doc.getLong("user_id");
+```
+</Accordion>
+
+<Accordion title="Float">
+```java
+doc.setField("score", 95.5f);
+Float score = doc.getFloat("score");
+```
+</Accordion>
+
+<Accordion title="Double">
+```java
+doc.setField("price", 99.99);
+Double price = doc.getDouble("price");
+```
+</Accordion>
+
+<Accordion title="Instant">
+```java
+doc.setField("created_at", Instant.now());
+Instant created = doc.getInstant("created_at");
+// Stored as ISO-8601 string internally
+```
+</Accordion>
+
+<Accordion title="Date">
+```java
+doc.setField("publish_date", new Date());
+Date publishDate = doc.getDate("publish_date");
+```
+</Accordion>
+
+<Accordion title="Timestamp">
+```java
+doc.setField("modified", new Timestamp(System.currentTimeMillis()));
+Timestamp modified = doc.getTimestamp("modified");
+```
+</Accordion>
+
+<Accordion title="byte[]">
+```java
+doc.setField("thumbnail", imageBytes);
+byte[] thumbnail = doc.getBytes("thumbnail");
+```
+</Accordion>
+
+<Accordion title="JsonNode">
+```java
+ObjectNode metadata = mapper.createObjectNode();
+metadata.put("author", "Jane Doe");
+metadata.put("version", 2);
+doc.setField("metadata", metadata);
+JsonNode meta = doc.getJson("metadata");
+```
+</Accordion>
+
+## Field Operations
+
+### Setting Fields
+
+**Single value** (overwrites existing):
+
+```java
+doc.setField("title", "New Title");
+```
+
+**Object parameter** (auto-detects type):
+
+```java
+Object value = "some value";  // Could be any supported type
+doc.setField("field_name", value);
+```
+
+### Adding to Fields
+
+**Add to existing field** (converts to multi-valued):
+
+```java
+doc.setField("tags", "java");
+doc.addToField("tags", "lucille");
+doc.addToField("tags", "search");
+// Result: tags = ["java", "lucille", "search"]
+```
+
+### Set or Add
+
+**Create or append** depending on field existence:
+
+```java
+doc.setOrAdd("category", "technology");
+// First call: creates single-valued field
+
+doc.setOrAdd("category", "programming");
+// Second call: converts to multi-valued ["technology", "programming"]
+```
+
+### Update with Mode
+
+**Flexible update** based on mode:
+
+```java
+// Overwrite existing value
+doc.update("title", UpdateMode.OVERWRITE, "Title 1", "Title 2");
+// Result: title = ["Title 1", "Title 2"]
+
+// Skip if field exists
+doc.update("author", UpdateMode.SKIP, "Default Author");
+// Only sets if author field doesn't exist
+
+// Append values
+doc.update("keywords", UpdateMode.APPEND, "keyword1", "keyword2");
+// Adds to existing values
+```
+
+**Update modes:**
+- `OVERWRITE`: Replace existing values
+- `SKIP`: Only set if field doesn't exist
+- `APPEND`: Add to existing values (same as setOrAdd)
+
+## Multi-Valued Fields
+
+### Creating Multi-Valued Fields
+
+```java
+// Multiple addToField calls
+doc.addToField("authors", "Alice");
+doc.addToField("authors", "Bob");
+doc.addToField("authors", "Charlie");
+
+// Or multiple setOrAdd calls
+doc.setOrAdd("tags", "java");
+doc.setOrAdd("tags", "etl");
+doc.setOrAdd("tags", "search");
+```
+
+### Accessing Multi-Valued Fields
+
+**Get first value:**
+```java
+String firstAuthor = doc.getString("authors");  // "Alice"
+```
+
+**Get all values:**
+```java
+List<String> allAuthors = doc.getStringList("authors");
+// ["Alice", "Bob", "Charlie"]
+```
+
+**Check if multi-valued:**
+```java
+boolean isMulti = doc.isMultiValued("authors");  // true
+int count = doc.length("authors");  // 3
+```
+
+### Working with Lists
+
+All supported types have list variants:
+
+```java
+List<String> strings = doc.getStringList("tags");
+List<Integer> numbers = doc.getIntList("scores");
+List<Boolean> flags = doc.getBooleanList("features");
+List<Instant> timestamps = doc.getInstantList("events");
+List<JsonNode> objects = doc.getJsonList("items");
+```
+
+## Field Utilities
+
+### Checking Field Existence
+
+```java
+// Check if field exists (even if null)
+boolean exists = doc.has("title");
+
+// Check if field exists AND is not null
+boolean hasValue = doc.hasNonNull("title");
+```
+
+### Removing Fields
+
+```java
+// Remove entire field
+doc.removeField("temp_data");
+
+// Remove specific array index
+doc.removeFromArray("tags", 2);  // Remove third tag
+```
+
+### Renaming Fields
+
+```java
+doc.renameField("old_name", "new_name", UpdateMode.OVERWRITE);
+```
+
+### Removing Duplicates
+
+```java
+doc.addToField("tags", "java");
+doc.addToField("tags", "lucille");
+doc.addToField("tags", "java");  // Duplicate
+
+doc.removeDuplicateValues("tags", "tags_unique");
+// tags_unique = ["java", "lucille"]
+
+// Or remove in-place:
+doc.removeDuplicateValues("tags", null);
+// tags = ["java", "lucille"]
+```
+
+### Field Length
+
+```java
+int length = doc.length("tags");
+// Returns number of values (1 for single-valued, N for multi-valued)
+```
+
+### Getting All Field Names
+
+```java
+Set<String> fieldNames = doc.getFieldNames();
+// Preserves insertion order
+```
+
+## Nested JSON Fields
+
+Documents support nested JSON path access:
+
+### Getting Nested Values
+
+```java
+doc.setField("user", objectMapper.createObjectNode()
+    .put("name", "John")
+    .put("age", 30));
+
+// Access nested field
+JsonNode name = doc.getNestedJson("user.name");
+
+// Access array element
+ArrayNode tags = (ArrayNode) doc.getNestedJson("metadata.tags");
+JsonNode firstTag = doc.getNestedJson("metadata.tags[0]");
+```
+
+### Setting Nested Values
+
+```java
+// Creates nested structure if doesn't exist
+doc.setNestedJson("user.address.city", TextNode.valueOf("Boston"));
+
+// Set array element
+doc.setNestedJson("metadata.tags[0]", TextNode.valueOf("important"));
+```
+
+### Removing Nested Values
+
+```java
+doc.removeNestedJson("user.address.zipcode");
+```
+
+### Path Syntax
+
+```java
+// Object paths use dots
+"user.profile.name"
+
+// Array indices use brackets
+"items[0].title"
+
+// Combined
+"metadata.authors[2].contact.email"
+```
+
+## Document Metadata
+
+### Run ID
+
+```java
+// Set during creation
+Document doc = Document.create("id", "run-123");
+String runId = doc.getRunId();  // "run-123"
+
+// Or initialize later
+doc.initializeRunId("run-123");
+
+// Clear run ID
+doc.clearRunId();
+```
+
+### Dropped Status
+
+```java
+// Mark document as dropped (won't be indexed)
+doc.setDropped(true);
+
+boolean isDropped = doc.isDropped();
+
+// Check in stages
+if (doc.isDropped()) {
+    // Skip processing for dropped documents
+    return null;
+}
+```
+
+## Child Documents
+
+Documents can have nested child documents:
+
+### Adding Children
+
+```java
+Document parent = Document.create("parent-1");
+
+Document child1 = Document.create("child-1");
+child1.setField("type", "chapter");
+parent.addChild(child1);
+
+Document child2 = Document.create("child-2");
+child2.setField("type", "chapter");
+parent.addChild(child2);
+```
+
+### Accessing Children
+
+```java
+boolean hasKids = parent.hasChildren();
+List<Document> children = parent.getChildren();
+
+for (Document child : children) {
+    System.out.println(child.getId());
+}
+```
+
+### Removing Children
+
+```java
+parent.removeChildren();
+```
+
+### Child Document Flow
+
+When a Stage generates children:
+
+```java
+@Override
+public Iterator<Document> processDocument(Document doc) {
+    Document child1 = Document.create("child-1", doc.getRunId());
+    Document child2 = Document.create("child-2", doc.getRunId());
+    
+    return Arrays.asList(child1, child2).iterator();
+}
+```
+
+Children automatically:
+- Inherit the parent's run ID (if not already set)
+- Flow through downstream stages
+- Get indexed separately
+- Generate their own events
+
+<Info>
+Child documents generated during pipeline processing are **not** stored in the parent's `.children` field - they flow independently through the system.
+</Info>
+
+## Document Copying
+
+### Deep Copy
+
+```java
+Document original = Document.create("doc-1");
+original.setField("title", "Original");
+
+Document copy = original.deepCopy();
+copy.setField("title", "Modified");
+
+// original remains unchanged
+System.out.println(original.getString("title"));  // "Original"
+System.out.println(copy.getString("title"));       // "Modified"
+```
+
+### Merging Documents
+
+**Add all fields from another document:**
+
+```java
+Document target = Document.create("target");
+target.setField("title", "Target Title");
+
+Document source = Document.create("source");
+source.setField("author", "Jane Doe");
+source.setField("tags", "java");
+
+target.setOrAddAll(source);
+// target now has: title, author, tags
+```
+
+**Add specific field:**
+
+```java
+target.setOrAdd("field_name", source);
+// Copies the value of "field_name" from source to target
+```
+
+## JSON Transformation
+
+Apply JSONata expressions to transform documents:
+
+```java
+import com.dashjoin.jsonata.Jsonata;
+
+Document doc = Document.create("doc-1");
+doc.setField("firstName", "John");
+doc.setField("lastName", "Doe");
+
+Jsonata expr = Jsonata.jsonata(
+    "{ 'fullName': firstName & ' ' & lastName }"
+);
+
+doc.transform(expr);
+// Document now has: fullName = "John Doe"
+// firstName and lastName are removed
+```
+
+<Note>
+Transformation expressions cannot modify reserved fields (id, run_id, etc.) or return non-object results.
+</Note>
+
+## Converting to Map
+
+Get document as a Map for external APIs:
+
+```java
+Map<String, Object> docMap = doc.asMap();
+
+// Use with Jackson
+ObjectMapper mapper = new ObjectMapper();
+String json = mapper.writeValueAsString(docMap);
+
+// Or pass to external libraries
+thirdPartyApi.processDocument(docMap);
+```
+
+## Common Patterns
+
+### Building Documents from Database Results
+
+```java
+ResultSet rs = statement.executeQuery("SELECT * FROM products");
+while (rs.next()) {
+    Document doc = Document.create(rs.getString("id"), runId);
+    doc.setField("name", rs.getString("name"));
+    doc.setField("price", rs.getDouble("price"));
+    doc.setField("in_stock", rs.getBoolean("in_stock"));
+    doc.setField("created_at", rs.getTimestamp("created_at"));
+    publisher.publish(doc);
+}
+```
+
+### Conditional Field Setting
+
+```java
+String description = getDescription();
+if (description != null && !description.isEmpty()) {
+    doc.setField("description", description);
+}
+
+// Or use setOrAdd to avoid null checks
+doc.setOrAdd("description", description);
+```
+
+### Building Hierarchical Data
+
+```java
+ObjectNode address = mapper.createObjectNode();
+address.put("street", "123 Main St");
+address.put("city", "Boston");
+address.put("state", "MA");
+doc.setField("address", address);
+
+// Or use nested paths
+doc.setNestedJson("address.street", TextNode.valueOf("123 Main St"));
+doc.setNestedJson("address.city", TextNode.valueOf("Boston"));
+doc.setNestedJson("address.state", TextNode.valueOf("MA"));
+```
+
+### Accumulating Values
+
+```java
+for (String tag : tags) {
+    doc.addToField("tags", tag);
+}
+
+for (String author : authors) {
+    doc.setOrAdd("authors", author);
+}
+```
+
+## Best Practices
+
+1. **Unique IDs**: Ensure document IDs are stable and unique
+2. **Set Run ID**: Always include run ID for tracking
+3. **Null Checks**: Check for null before accessing field values
+4. **Type Safety**: Use typed getters (getString, getInt, etc.)
+5. **Field Naming**: Use consistent, descriptive field names
+6. **Reserved Fields**: Never try to directly set reserved fields
+7. **Multi-Valued Fields**: Use `getStringList()` not `getString()` for multi-valued
+8. **Child Documents**: Set unique IDs and inherit run ID
+9. **Deep Copy**: Use when you need independent document copies
+10. **Validate Early**: Check required fields in early pipeline stages
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Stages" icon="wand-magic-sparkles" href="/concepts/stages">
+    Learn how stages transform documents
+  </Card>
+  <Card title="Pipelines" icon="diagram-project" href="/concepts/pipelines">
+    Understand document flow through pipelines
+  </Card>
+  <Card title="Connectors" icon="plug" href="/concepts/connectors">
+    See how documents are created
+  </Card>
+  <Card title="Indexers" icon="database" href="/concepts/indexers">
+    Learn how documents are indexed
+  </Card>
+</CardGroup>

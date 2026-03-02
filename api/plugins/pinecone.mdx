@@ -1,0 +1,485 @@
+---
+title: "Pinecone Plugin"
+description: "Index vector embeddings to Pinecone vector database"
+icon: "brain-circuit"
+---
+
+## Overview
+
+The Pinecone plugin provides the `PineconeIndexer`, which sends vector embeddings from documents to Pinecone's vector database. It supports upsert and update operations, namespaces, and metadata storage.
+
+**Maven Module**: `lucille-pinecone`
+
+**Java Class**: `com.kmwllc.lucille.pinecone.indexer.PineconeIndexer`
+
+Source: [PineconeIndexer.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-plugins/lucille-pinecone/src/main/java/com/kmwllc/lucille/pinecone/indexer/PineconeIndexer.java)
+
+## Installation
+
+Add the plugin dependency to your `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>com.kmwllc</groupId>
+  <artifactId>lucille-pinecone</artifactId>
+  <version>${lucille.version}</version>
+</dependency>
+```
+
+## Configuration
+
+### Basic Configuration
+
+```hocon
+indexer {
+  type: "pinecone"
+  batchSize: 1000  # Maximum for Pinecone
+  
+  pinecone {
+    apiKey: "${PINECONE_API_KEY}"
+    index: "my-index"
+    defaultEmbeddingField: "embedding"
+  }
+}
+```
+
+### With Namespaces
+
+```hocon
+indexer {
+  type: "pinecone"
+  batchSize: 1000
+  
+  pinecone {
+    apiKey: "${PINECONE_API_KEY}"
+    index: "vectors"
+    
+    namespaces {
+      "products": "product_embedding"
+      "users": "user_embedding"
+    }
+    
+    metadataFields: ["title", "category", "price"]
+  }
+}
+```
+
+## Parameters
+
+<ParamField path="apiKey" type="string" required>
+  Pinecone API key for authentication.
+  
+  **Best practice**: Use environment variable `${PINECONE_API_KEY}`
+</ParamField>
+
+<ParamField path="index" type="string" required>
+  Name of the Pinecone index to write vectors to.
+  
+  **Example**: `"embeddings"`, `"product-vectors"`
+</ParamField>
+
+<ParamField path="defaultEmbeddingField" type="string">
+  Document field containing the vector embeddings when not using namespaces.
+  
+  Required if `namespaces` is not set.
+  
+  **Example**: `"embedding"`, `"vector"`
+</ParamField>
+
+<ParamField path="namespaces" type="Map<String, String>">
+  Mapping of namespace names to embedding field names. Allows indexing different vector types to different namespaces.
+  
+  **Example**:
+  ```hocon
+  namespaces {
+    "products": "product_embedding"
+    "categories": "category_embedding"
+  }
+  ```
+  
+  Mutually exclusive with `defaultEmbeddingField` (one or the other must be set).
+</ParamField>
+
+<ParamField path="metadataFields" type="string[]">
+  List of document fields to store as metadata with each vector. Metadata can be used for filtering during queries.
+  
+  **Example**: `["title", "category", "timestamp"]`
+</ParamField>
+
+<ParamField path="mode" type="string" default="upsert">
+  Operation mode:
+  - `upsert`: Insert or replace vectors (recommended)
+  - `update`: Only update existing vectors
+  
+  **Note**: Update mode only modifies embeddings, not metadata.
+</ParamField>
+
+## Features
+
+### Upsert Operations
+
+Insert new vectors or replace existing ones:
+
+```hocon
+mode: "upsert"
+```
+
+- If vector ID exists, it's replaced
+- If vector ID is new, it's inserted
+- Includes metadata fields
+
+### Update Operations
+
+Modify only the embeddings:
+
+```hocon
+mode: "update"
+```
+
+- Updates only the vector values
+- Does not modify metadata
+- No error if vector doesn't exist (Pinecone returns 200 OK)
+
+### Namespace Support
+
+Organize vectors into namespaces:
+
+```hocon
+namespaces {
+  "products": "product_vector"
+  "users": "user_vector"
+}
+```
+
+**Benefits**:
+- Isolate different vector types
+- Query specific namespaces
+- Delete namespace contents independently
+- Same document can have vectors in multiple namespaces
+
+### Metadata Storage
+
+Store filterable metadata with vectors:
+
+```hocon
+metadataFields: ["category", "brand", "price", "in_stock"]
+```
+
+Metadata is converted to strings and stored with each vector. Use for:
+- Filtering query results
+- Post-retrieval processing
+- Displaying context
+
+### Deletion Support
+
+Delete vectors using marker fields:
+
+```hocon
+indexer {
+  deletionMarkerField: "deleted"
+  deletionMarkerFieldValue: "true"
+}
+```
+
+**Important**: Pinecone serverless indexes **do not support** delete-by-metadata. Only delete-by-ID is supported.
+
+Deletion happens in all configured namespaces.
+
+## Batch Size Limits
+
+<Warning>
+  Pinecone has a maximum batch size of **1000 vectors** or **2MB**, whichever is reached first.
+  
+  The indexer enforces a maximum `batchSize` of 1000. Larger dimensions will hit the 2MB limit with fewer vectors.
+</Warning>
+
+```hocon
+indexer {
+  batchSize: 1000  # Maximum allowed
+}
+```
+
+## Connection Validation
+
+The indexer validates connectivity during startup:
+
+```java
+boolean isStable = PineconeUtils.isClientStable(client, indexName);
+```
+
+Checks:
+- API key is valid
+- Index exists
+- Connection is stable
+
+If validation fails, the pipeline will not start.
+
+## Example Configurations
+
+<Accordion title="Simple vector indexing">
+```hocon
+indexer {
+  type: "pinecone"
+  batchSize: 500
+  
+  pinecone {
+    apiKey: "${PINECONE_API_KEY}"
+    index: "documents"
+    defaultEmbeddingField: "embedding"
+    metadataFields: ["title", "url", "timestamp"]
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Multi-namespace with different embeddings">
+```hocon
+indexer {
+  type: "pinecone"
+  batchSize: 1000
+  
+  pinecone {
+    apiKey: "${PINECONE_API_KEY}"
+    index: "hybrid-search"
+    
+    namespaces {
+      "text": "text_embedding"
+      "image": "image_embedding"
+      "multimodal": "combined_embedding"
+    }
+    
+    metadataFields: ["doc_type", "source", "created_at"]
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Update-only mode">
+```hocon
+indexer {
+  type: "pinecone"
+  batchSize: 1000
+  
+  pinecone {
+    apiKey: "${PINECONE_API_KEY}"
+    index: "vectors"
+    defaultEmbeddingField: "updated_embedding"
+    mode: "update"  # Only update existing vectors
+  }
+}
+```
+</Accordion>
+
+<Accordion title="With deletion support">
+```hocon
+indexer {
+  type: "pinecone"
+  deletionMarkerField: "status"
+  deletionMarkerFieldValue: "deleted"
+  batchSize: 1000
+  
+  pinecone {
+    apiKey: "${PINECONE_API_KEY}"
+    index: "products"
+    
+    namespaces {
+      "active": "embedding"
+      "archived": "embedding"
+    }
+  }
+}
+```
+</Accordion>
+
+## Document Requirements
+
+<Warning>
+  Documents **must** have embeddings in the specified field. Documents without embeddings will cause errors.
+  
+  Use a `Drop` stage with conditions to filter out documents without embeddings before indexing.
+</Warning>
+
+### Example: Filter Documents Without Embeddings
+
+```hocon
+pipeline {
+  stages: [
+    # Generate embeddings first
+    {
+      class: "com.kmwllc.lucille.stage.GenerateEmbeddings"
+      textField: "content"
+      embeddingField: "embedding"
+    },
+    
+    # Drop documents without embeddings
+    {
+      class: "com.kmwllc.lucille.stage.Drop"
+      conditions: [
+        {
+          operator: "is_null"
+          field: "embedding"
+        }
+      ]
+    }
+  ]
+}
+
+indexer {
+  type: "pinecone"
+  pinecone {
+    defaultEmbeddingField: "embedding"
+  }
+}
+```
+
+## Metadata Format
+
+Metadata fields are stored as strings:
+
+```java
+Struct.newBuilder()
+  .putAllFields(fields.stream()
+    .filter(entry -> metadataFields.contains(entry.getKey()))
+    .collect(Collectors.toUnmodifiableMap(
+      entry -> entry.getKey(),
+      entry -> Value.newBuilder()
+        .setStringValue(entry.getValue().toString())
+        .build()
+    ))
+  )
+  .build()
+```
+
+All metadata values are converted to strings using `toString()`.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Filter out documents without embeddings">
+    Always use a Drop stage to exclude documents missing embeddings:
+    ```hocon
+    {
+      class: "com.kmwllc.lucille.stage.Drop"
+      conditions: [{operator: "is_null", field: "embedding"}]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use namespaces for organization">
+    Organize vectors by type, tenant, or use case:
+    - Product vectors vs. user vectors
+    - Different embedding models
+    - Multi-tenant isolation
+    - Test vs. production data
+  </Accordion>
+
+  <Accordion title="Limit metadata fields">
+    Only include metadata that will be used for filtering:
+    - Reduces storage costs
+    - Faster queries
+    - Smaller payloads
+  </Accordion>
+
+  <Accordion title="Use maximum batch size">
+    Set `batchSize: 1000` for best performance:
+    - Fewer API requests
+    - Better throughput
+    - Lower latency
+    
+    Adjust lower only for very high-dimensional vectors.
+  </Accordion>
+
+  <Accordion title="Handle deletion carefully">
+    - Only delete-by-ID is supported (no metadata queries)
+    - Deletions happen across all namespaces
+    - Consider soft deletes (metadata flag) as alternative
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Embedding field is null error">
+    ```
+    Error while upserting vectors
+    ```
+    
+    **Cause**: Document is missing the embedding field.
+    
+    **Solution**:
+    - Add Drop stage to filter out documents without embeddings
+    - Verify embedding generation stage runs successfully
+    - Check field name matches configuration
+  </Accordion>
+
+  <Accordion title="Batch size exceeds 1000">
+    ```
+    Maximum batch size for Pinecone is 1000
+    ```
+    
+    **Solution**: Reduce `batchSize` to 1000 or less:
+    ```hocon
+    indexer {
+      batchSize: 1000
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="API key authentication failed">
+    **Solutions**:
+    - Verify API key is correct
+    - Check environment variable is set
+    - Ensure key has write permissions to the index
+    - Confirm Pinecone account is active
+  </Accordion>
+
+  <Accordion title="Index not found">
+    **Solutions**:
+    - Create the index in Pinecone console first
+    - Verify index name matches exactly (case-sensitive)
+    - Check dimension matches embedding size
+    - Ensure metric (cosine, euclidean, dotproduct) is appropriate
+  </Accordion>
+
+  <Accordion title="Upserted count mismatch">
+    ```
+    Number of upserted vectors does not match requested
+    ```
+    
+    **Causes**:
+    - Network issues
+    - Rate limiting
+    - Pinecone service issues
+    
+    **Solutions**:
+    - Check Pinecone status page
+    - Reduce batch size
+    - Implement retry logic
+  </Accordion>
+</AccordionGroup>
+
+## Vector ID Strategy
+
+Pinecone uses the document ID as the vector ID:
+
+```java
+String vectorId = doc.getId();
+```
+
+**Considerations**:
+- IDs must be unique within each namespace
+- Same ID in different namespaces = different vectors
+- Use `idOverrideField` if you need different IDs
+
+## Performance Characteristics
+
+- **Batch size**: Up to 1000 vectors or 2MB per request
+- **Throughput**: Depends on Pinecone plan and index type
+- **Latency**: Typically 50-200ms per batch
+- **Parallel workers**: Safe to run multiple workers
+
+## See Also
+
+- [Weaviate Plugin](/api/plugins/weaviate) - Alternative vector database
+- [Indexers Overview](/api/indexers/overview)
+- [Pinecone Documentation](https://docs.pinecone.io/)

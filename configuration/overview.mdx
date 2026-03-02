@@ -1,0 +1,273 @@
+---
+title: Configuration Overview
+description: Understanding Lucille's HOCON-based configuration system
+---
+
+Lucille uses [Typesafe Config](https://github.com/lightbend/config) to interpret configuration files written in HOCON (Human-Optimized Config Object Notation), a superset of JSON that provides a more readable and flexible syntax.
+
+## HOCON Format
+
+HOCON provides several advantages over plain JSON:
+
+- **Comments**: Use `#` or `//` for comments
+- **No quotes required**: Keys and most string values don't need quotes
+- **Trailing commas**: Allowed in lists and objects
+- **Environment variable substitution**: Reference environment variables with `${?ENV_VAR}`
+- **Value concatenation**: Extend or merge configuration blocks
+- **Include directives**: Reference other configuration files
+
+### Basic Syntax Example
+
+```hocon
+# This is a comment
+connectors: [
+  {
+    name: "connector1"
+    class: "com.kmwllc.lucille.connector.FileConnector"
+    pipeline: "pipeline1"
+    paths: ["/path/to/files"]
+  }
+]
+```
+
+## Configuration Structure
+
+A Lucille configuration file consists of four main sections:
+
+<CardGroup cols={2}>
+  <Card title="Connectors" icon="plug" href="/configuration/connectors">
+    Define data sources and how documents are ingested
+  </Card>
+  <Card title="Pipelines" icon="diagram-project" href="/configuration/pipelines">
+    Configure processing stages for document transformation
+  </Card>
+  <Card title="Indexers" icon="database" href="/configuration/indexers">
+    Set up search engine destinations and indexing behavior
+  </Card>
+  <Card title="Kafka" icon="message" href="/configuration/kafka">
+    Configure distributed mode with Kafka messaging
+  </Card>
+</CardGroup>
+
+## Environment Variable Substitution
+
+Use `${?ENV_VAR}` to reference environment variables with optional fallback:
+
+```hocon
+s3 {
+  accessKeyId: ${?AWS_ACCESS_KEY_ID}
+  secretAccessKey: ${?AWS_SECRET_ACCESS_KEY}
+  defaultRegion: ${?AWS_DEFAULT_REGION}
+}
+
+opensearch {
+  url: "https://localhost:9200"
+  url: ${?OPENSEARCH_URL}  # Override with env var if present
+  index: "my-index"
+  index: ${?OPENSEARCH_INDEX}
+}
+```
+
+The `?` makes the substitution optional - if the environment variable isn't set, the previous value is used.
+
+## Configuration Merging
+
+HOCON allows you to declare configuration blocks and extend them later:
+
+```hocon
+# Declare initial pipelines
+pipelines: [
+  {name: "pipeline1", stages: [{class: "com.kmwllc.lucille.stage.CopyFields"}]}
+]
+
+# Add more pipelines by merging
+pipelines: ${pipelines} [
+  {name: "pipeline2", stages: [{class: "com.kmwllc.lucille.stage.CreateChildrenStage"}]}
+]
+```
+
+## Including External Files
+
+You can reference other configuration files to organize complex configurations:
+
+```hocon
+include "base-config.conf"
+include "connectors/file-connector.conf"
+include "pipelines/main-pipeline.conf"
+```
+
+See `file-to-file-example.conf` in the source for more examples.
+
+## Duration Formats
+
+Many configuration options accept duration strings in HOCON format:
+
+- `3s` - 3 seconds
+- `5m` - 5 minutes
+- `1h` - 1 hour
+- `2d` - 2 days
+- `6h` - 6 hours
+
+<CodeGroup>
+```hocon File Connector Duration Examples
+filterOptions: {
+  # Only files modified in last 3 days
+  lastModifiedCutoff: "3d"
+  
+  # Files not published in last 6 hours
+  lastPublishedCutoff: "6h"
+}
+```
+
+```hocon Worker Timeout Configuration
+worker {
+  maxProcessingSecs: 600  # 10 minutes in seconds
+}
+
+kafka {
+  maxPollIntervalSecs: 600  # 10 minutes
+}
+```
+</CodeGroup>
+
+## Configuration Validation
+
+Lucille validates all configuration using the **Spec** system. Each component (connector, stage, indexer) declares a `public static Spec SPEC` that defines:
+
+- Required and optional parameters
+- Parameter types (string, boolean, number, list, nested config)
+- Validation rules
+
+Validation errors reference the component's `name` property for easy debugging.
+
+### Validation Example
+
+The `validation-example.conf` file shows intentional configuration errors:
+
+```hocon
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: [
+      {
+        # Invalid class - will fail validation
+        class: "com.kmwllc.lucille.stage.InvalidStage"
+      },
+      {
+        class: "com.kmwllc.lucille.stage.Length",
+        fieldMapping {
+          a: "a_length"
+        }
+        # Invalid property not in the Spec
+        invalidProperty: true
+      }
+    ]
+  }
+]
+```
+
+## ConfigUtils Utility
+
+Lucille provides `ConfigUtils` for working with configurations:
+
+<ParamField path="getOrDefault" type="method">
+  Get a configuration value with a fallback default:
+  
+  ```java
+  String value = ConfigUtils.getOrDefault(config, "setting", "defaultValue");
+  ```
+</ParamField>
+
+<ParamField path="createHeaderArray" type="method">
+  Create HTTP headers from a configuration block:
+  
+  ```java
+  Header[] headers = ConfigUtils.createHeaderArray(config, "headers");
+  ```
+</ParamField>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use meaningful names">
+    Always provide descriptive `name` properties for connectors, pipelines, and stages. These names appear in logs and error messages.
+    
+    ```hocon
+    connectors: [
+      {
+        name: "sharepoint-docs-connector"  # Good
+        # name: "connector1"  # Avoid generic names
+      }
+    ]
+    ```
+  </Accordion>
+
+  <Accordion title="Externalize sensitive values">
+    Never hardcode credentials. Use environment variables:
+    
+    ```hocon
+    # Bad - hardcoded credentials
+    opensearch {
+      url: "https://admin:password@localhost:9200"
+    }
+    
+    # Good - environment variables
+    opensearch {
+      url: ${OPENSEARCH_URL}
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Organize complex configs with includes">
+    Split large configurations into logical files:
+    
+    ```hocon
+    include "connectors.conf"
+    include "pipelines.conf"
+    include "indexers.conf"
+    ```
+  </Accordion>
+
+  <Accordion title="Comment your configurations">
+    Document why specific settings are used:
+    
+    ```hocon
+    worker {
+      # Increased timeout for large document processing
+      maxProcessingSecs: 1200
+      
+      # Limit retries to prevent infinite loops on malformed data
+      maxRetries: 2
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Test configurations incrementally">
+    When building complex pipelines, test with minimal configurations first, then add complexity:
+    
+    1. Start with one connector and empty pipeline
+    2. Add stages one at a time
+    3. Enable indexing last
+  </Accordion>
+</AccordionGroup>
+
+## IDE Support
+
+For better HOCON editing in IntelliJ IDEA, install the [HOCON plugin](https://plugins.jetbrains.com/plugin/10481-hocon) for syntax highlighting and formatting.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Connectors" icon="plug" href="/configuration/connectors">
+    Set up data sources to ingest documents
+  </Card>
+  <Card title="Build Pipelines" icon="diagram-project" href="/configuration/pipelines">
+    Create processing stages for document transformation
+  </Card>
+  <Card title="Set Up Indexers" icon="database" href="/configuration/indexers">
+    Configure search engine destinations
+  </Card>
+  <Card title="Enable Kafka" icon="message" href="/configuration/kafka">
+    Run Lucille in distributed mode
+  </Card>
+</CardGroup>

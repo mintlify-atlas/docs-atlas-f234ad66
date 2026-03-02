@@ -1,80 +1,312 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with Lucille in 5 minutes by indexing a CSV file to Solr
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide will get you up and running with Lucille in just a few minutes. We'll walk through a simple example that reads a CSV file of songs and indexes them to Apache Solr.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  This quickstart assumes you have Java 17+ and Maven installed. If not, see the [Installation](/installation) guide first.
+</Note>
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- Java 17 or later installed
+- Maven installed
+- Apache Solr 8.x or later running on port 8983
+- A Solr collection named `quickstart` created
+
+<Tip>
+  New to Solr? Follow the [Apache Solr Quick Start](https://solr.apache.org/guide/solr/latest/getting-started/introduction.html) to get Solr running locally.
+</Tip>
+
+## Step 1: Clone and Build Lucille
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/kmwtechnology/lucille.git
+    cd lucille
+    ```
+  </Step>
+
+  <Step title="Build the project">
+    ```bash
+    mvn clean install
+    ```
+    
+    This will compile Lucille and all its modules. The build may take a few minutes the first time as Maven downloads dependencies.
+  </Step>
+
+  <Step title="Navigate to the example">
+    ```bash
+    cd lucille-examples/lucille-simple-csv-solr-example
+    ```
+  </Step>
+</Steps>
+
+## Step 2: Understand the Configuration
+
+The example includes a configuration file that defines the entire ETL workflow. Let's examine `conf/simple-csv-solr-example.conf`:
+
+```hocon conf/simple-csv-solr-example.conf
+# This example illustrates how Lucille can handle a simple use case 
+# like indexing the contents of a CSV file into Solr
+
+# CONNECTORS: Define data sources
+connectors: [
+  {
+    class: "com.kmwllc.lucille.connector.FileConnector",
+    paths: ["conf/songs.csv"],
+    name: "connector1",
+    pipeline: "pipeline1"
+    fileHandlers: {
+      csv: { }
+    }
+  }
+]
+
+# PIPELINES: Define transformation stages
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: []  # Empty pipeline means no transformations
+  }
+]
+
+# INDEXER: Define the destination
+indexer {
+  type: "Solr"
+}
+
+# SOLR: Configure connection details
+solr {
+  useCloudClient: true
+  defaultCollection: "quickstart"
+  url: ["http://localhost:8983/solr"]
+}
+```
+
+<Note>
+  Lucille uses HOCON (Human-Optimized Config Object Notation) for configuration files. It's a superset of JSON that's easier to read and write.
+</Note>
+
+### Configuration Breakdown
+
+<Accordion title="Connectors Section">
+  **Connectors** extract data from source systems. This example uses the `FileConnector` to read a CSV file:
+  
+  - `class`: The Java class that implements the connector
+  - `paths`: List of files or directories to read
+  - `name`: Unique identifier for this connector
+  - `pipeline`: Which pipeline should process these documents
+  - `fileHandlers.csv`: Configuration for CSV file parsing (uses defaults)
+</Accordion>
+
+<Accordion title="Pipelines Section">
+  **Pipelines** transform and enrich documents. This example has an empty pipeline (no transformations), but you can add stages to:
+  
+  - Parse dates and numbers
+  - Extract text from documents
+  - Generate embeddings
+  - Query databases
+  - Apply business logic
+</Accordion>
+
+<Accordion title="Indexer Section">
+  **Indexers** send processed documents to their destination. The `type: "Solr"` tells Lucille to use the Solr indexer.
+</Accordion>
+
+<Accordion title="Solr Section">
+  **Solr configuration** specifies how to connect:
+  
+  - `useCloudClient`: Use Solr Cloud client (works for standalone too)
+  - `defaultCollection`: Collection name to index into
+  - `url`: Solr server URL
+</Accordion>
+
+## Step 3: Review the Source Data
+
+The example includes a CSV file with song data. Here's a sample of `conf/songs.csv`:
+
+```csv
+title,artist,top genre,year released,added,bpm,nrgy,dnce,dB,live,val,dur,acous,spch,pop,top year,artist type
+STARSTRUKK (feat. Katy Perry),3OH!3,dance pop,2009,2022‑02‑17,140,81,61,-6,23,23,203,0,6,70,2010,Duo
+My First Kiss (feat. Ke$ha),3OH!3,dance pop,2010,2022‑02‑17,138,89,68,-4,36,83,192,1,8,68,2010,Duo
+I Need A Dollar,Aloe Blacc,pop soul,2010,2022‑02‑17,95,48,84,-7,9,96,243,20,3,72,2010,Solo
+```
+
+The CSV has 100 songs with various attributes like title, artist, genre, BPM, and more.
+
+## Step 4: Run the Example
+
+<Steps>
+  <Step title="Build the example">
+    Make sure you're in the `lucille-simple-csv-solr-example` directory:
+    
+    ```bash
+    mvn clean install
+    ```
+  </Step>
+
+  <Step title="Start Solr and create collection">
+    In a separate terminal, make sure Solr is running on port 8983 and you have a collection named `quickstart`:
+    
+    ```bash
+    # If using Solr standalone
+    bin/solr start
+    bin/solr create -c quickstart
+    ```
+  </Step>
+
+  <Step title="Run the ingest">
+    Execute the provided shell script:
+    
+    ```bash
+    ./scripts/run_ingest.sh
+    ```
+    
+    This script runs Lucille with the configuration file:
+    ```bash
+    java -Dconfig.file=conf/simple-csv-solr-example.conf \
+      -cp 'target/lib/*' \
+      com.kmwllc.lucille.core.Runner
+    ```
+  </Step>
+</Steps>
+
+## Step 5: Verify the Results
+
+<Steps>
+  <Step title="Commit the documents">
+    After the ingest completes, commit the documents to make them visible:
+    
+    ```bash
+    curl "http://localhost:8983/solr/quickstart/update?commit=true&openSearcher=true"
+    ```
+  </Step>
+
+  <Step title="Query Solr">
+    Check that documents were indexed:
+    
+    ```bash
+    curl "http://localhost:8983/solr/quickstart/select?q=*:*"
+    ```
+    
+    Or visit the Solr Admin UI at `http://localhost:8983/solr/#/quickstart/query` and run a `*:*` query.
+  </Step>
+
+  <Step title="Search for specific songs">
+    Try searching for a specific artist:
+    
+    ```bash
+    curl "http://localhost:8983/solr/quickstart/select?q=artist:Rihanna"
+    ```
+  </Step>
+</Steps>
+
+## Expected Output
+
+When you run the ingest, you should see output similar to:
+
+```
+INFO  [main] Runner - Starting run with id a7b3c9d2-4e1f-4a8b-9c3d-2e5f8a9b1c4d
+INFO  [main] Runner - Running connector connector1 feeding to pipeline pipeline1
+INFO  [Worker-1] FileConnector - Processing file: conf/songs.csv
+INFO  [Indexer-1] SolrIndexer - Indexed 100 documents
+INFO  [main] Runner - Connector connector1 feeding to pipeline pipeline1 complete. Time: 2.34 secs.
+INFO  [main] Runner - Run took 2.51 secs.
+```
+
+You should see 100 documents indexed to Solr.
+
+## Understanding the Flow
+
+Here's what happened when you ran the example:
+
+<Steps>
+  <Step title="Connector reads CSV">
+    The `FileConnector` reads `songs.csv` and converts each row into a Lucille **Document**. Each CSV column becomes a document field.
+  </Step>
+
+  <Step title="Pipeline processes documents">
+    Documents flow through the pipeline. Since the pipeline is empty, no transformations are applied.
+  </Step>
+
+  <Step title="Indexer sends to Solr">
+    The `SolrIndexer` batches documents and sends them to the Solr collection via the Solr API.
+  </Step>
+
+  <Step title="Completion">
+    Lucille waits for all documents to be indexed, logs metrics, and exits.
+  </Step>
+</Steps>
+
+## Next Steps
+
+Now that you've run your first Lucille example, here are some things to try:
+
+<CardGroup cols={2}>
+  <Card title="Add Pipeline Stages" icon="filter">
+    Modify the pipeline to add transformations like parsing dates or normalizing text.
+  </Card>
+  <Card title="Try Other Connectors" icon="database">
+    Explore examples for databases, S3, RSS feeds, and more in the `lucille-examples` directory.
+  </Card>
+  <Card title="Index to Other Engines" icon="magnifying-glass">
+    Change the indexer type to "Elasticsearch" or "OpenSearch" to try other search engines.
+  </Card>
+  <Card title="Run in Distributed Mode" icon="server">
+    Scale up by running Workers and Indexers as separate processes with Kafka.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Check out the other examples in `lucille-examples/` to see more advanced use cases:
+  - `lucille-rss-example`: Index RSS feeds
+  - `lucille-opensearch-ingest-example`: Index to OpenSearch
+  - `lucille-vector-ingest-example`: Generate embeddings and index to vector databases
+  - `lucille-distributed-example`: Run in distributed mode with Kafka
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Connection refused to Solr">
+    Make sure Solr is running on port 8983:
+    ```bash
+    curl http://localhost:8983/solr/
+    ```
+    If not running, start Solr: `bin/solr start`
+  </Accordion>
+
+  <Accordion title="Error: Collection 'quickstart' not found">
+    Create the collection:
+    ```bash
+    bin/solr create -c quickstart
+    ```
+  </Accordion>
+
+  <Accordion title="No documents appear in Solr">
+    Make sure you committed the documents:
+    ```bash
+    curl "http://localhost:8983/solr/quickstart/update?commit=true&openSearcher=true"
+    ```
+  </Accordion>
+
+  <Accordion title="Java version error">
+    Lucille requires Java 17 or later. Check your version:
+    ```bash
+    java -version
+    ```
+    If needed, install Java 17+ and set `JAVA_HOME`.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  For more detailed configuration options and advanced features, see the full documentation.
 </Note>

@@ -1,0 +1,303 @@
+---
+title: "Plugins Overview"
+description: "Extend Lucille with additional stages and indexers"
+icon: "puzzle-piece"
+---
+
+## What are Plugins?
+
+Lucille plugins extend the core framework with additional functionality. Plugins are separate Maven modules that provide specialized stages, indexers, and utilities for specific use cases like text extraction, OCR, and vector database integration.
+
+## Plugin Architecture
+
+Plugins are organized as separate modules under `lucille-plugins/`:
+
+```
+lucille-plugins/
+├── lucille-tika/          # Text extraction using Apache Tika
+├── lucille-ocr/           # Optical character recognition
+├── lucille-pinecone/      # Pinecone vector database
+├── lucille-weaviate/      # Weaviate vector search
+├── lucille-entity-extraction/  # Named entity recognition
+├── lucille-parquet/       # Parquet file support
+├── lucille-video/         # Video processing
+└── lucille-api/           # External API integration
+```
+
+Each plugin:
+- Has its own dependencies and versioning
+- Extends core Lucille interfaces (Stage, Indexer, etc.)
+- Provides configuration specifications via the Spec framework
+- Includes tests and documentation
+
+## Available Plugins
+
+<CardGroup cols={2}>
+  <Card title="Tika" icon="file-lines" href="/api/plugins/tika">
+    Extract text and metadata from documents using Apache Tika
+  </Card>
+  <Card title="OCR" icon="camera" href="/api/plugins/ocr">
+    Optical character recognition for images and PDFs
+  </Card>
+  <Card title="Pinecone" icon="brain-circuit" href="/api/plugins/pinecone">
+    Vector database indexer for embeddings
+  </Card>
+  <Card title="Weaviate" icon="database" href="/api/plugins/weaviate">
+    Object-based vector search engine
+  </Card>
+</CardGroup>
+
+## Using Plugins
+
+### Maven Dependency
+
+Add the plugin as a dependency in your `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>com.kmwllc</groupId>
+  <artifactId>lucille-tika</artifactId>
+  <version>${lucille.version}</version>
+</dependency>
+```
+
+### Configuration
+
+Reference plugin stages or indexers in your pipeline configuration:
+
+```hocon
+pipeline {
+  stages: [
+    {
+      class: "com.kmwllc.lucille.tika.stage.TextExtractor"
+      filePathField: "path"
+      textField: "content"
+    }
+  ]
+}
+```
+
+## Plugin Types
+
+### Stage Plugins
+
+Extend the `Stage` interface to transform documents:
+
+- **TextExtractor** (Tika): Extract text from files
+- **ApplyOCR** (OCR): Recognize text in images
+- **Named entity extraction**: Identify entities in text
+
+### Indexer Plugins
+
+Extend the `Indexer` interface to send documents to external systems:
+
+- **PineconeIndexer**: Vector database for embeddings
+- **WeaviateIndexer**: Object-based vector search
+
+### Utility Plugins
+
+Provide helper functions and integrations:
+
+- **API clients**: Connect to external services
+- **File handlers**: Support for specialized file formats
+- **Data converters**: Transform between formats
+
+## Creating Custom Plugins
+
+### Plugin Structure
+
+```
+my-plugin/
+├── pom.xml
+├── src/
+│   ├── main/java/com/example/lucille/
+│   │   ├── stage/
+│   │   │   └── MyStage.java
+│   │   └── util/
+│   │       └── MyHelper.java
+│   └── test/java/
+│       └── MyStageTest.java
+└── README.md
+```
+
+### Extend Base Classes
+
+```java
+package com.example.lucille.stage;
+
+import com.kmwllc.lucille.core.Stage;
+import com.kmwllc.lucille.core.Document;
+import com.typesafe.config.Config;
+
+public class MyStage extends Stage {
+  
+  public static final Spec SPEC = SpecBuilder.stage()
+      .requiredString("inputField")
+      .optionalString("outputField")
+      .build();
+  
+  private final String inputField;
+  private final String outputField;
+  
+  public MyStage(Config config) {
+    super(config);
+    this.inputField = config.getString("inputField");
+    this.outputField = config.hasPath("outputField") 
+        ? config.getString("outputField") 
+        : "result";
+  }
+  
+  @Override
+  public Iterator<Document> processDocument(Document doc) {
+    // Transform the document
+    String input = doc.getString(inputField);
+    doc.setField(outputField, processInput(input));
+    return null;  // Don't emit additional documents
+  }
+  
+  private String processInput(String input) {
+    // Your logic here
+    return input.toUpperCase();
+  }
+}
+```
+
+### Define Configuration Spec
+
+Use the Spec framework to declare configuration:
+
+```java
+public static final Spec SPEC = SpecBuilder.stage()
+    .requiredString("inputField", "apiKey")
+    .optionalString("outputField")
+    .optionalNumber("timeout")
+    .optionalList("filters", new TypeReference<List<String>>(){})
+    .build();
+```
+
+### Write Tests
+
+```java
+@Test
+public void testMyStage() throws Exception {
+  Config config = ConfigFactory.parseString(
+      "inputField: \"text\"\n" +
+      "outputField: \"result\""
+  );
+  
+  MyStage stage = new MyStage(config);
+  Document doc = Document.create("doc1");
+  doc.setField("text", "hello");
+  
+  stage.processDocument(doc);
+  
+  assertEquals("HELLO", doc.getString("result"));
+}
+```
+
+## Plugin Dependencies
+
+### Managing External Libraries
+
+Plugins can include their own dependencies:
+
+```xml
+<dependencies>
+  <!-- Core Lucille -->
+  <dependency>
+    <groupId>com.kmwllc</groupId>
+    <artifactId>lucille-core</artifactId>
+    <version>${project.version}</version>
+  </dependency>
+  
+  <!-- Plugin-specific library -->
+  <dependency>
+    <groupId>org.example</groupId>
+    <artifactId>special-library</artifactId>
+    <version>1.2.3</version>
+  </dependency>
+</dependencies>
+```
+
+### Avoiding Conflicts
+
+- Use dependency management to align versions
+- Exclude transitive dependencies when needed
+- Test plugin isolation
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Follow naming conventions">
+    - Stage classes: `*Stage`, `*Extractor`, `*Processor`
+    - Indexers: `*Indexer`
+    - Utilities: `*Utils`, `*Helper`
+    - Package structure: `com.kmwllc.lucille.<plugin>.<type>`
+  </Accordion>
+
+  <Accordion title="Provide complete configuration specs">
+    - Declare all required and optional parameters
+    - Include descriptions in Javadoc
+    - Validate configuration in constructor
+    - Provide sensible defaults
+  </Accordion>
+
+  <Accordion title="Handle resources properly">
+    - Use `start()` to initialize resources
+    - Use `stop()` to clean up
+    - Close connections and file handles
+    - Release memory for large objects
+  </Accordion>
+
+  <Accordion title="Write comprehensive tests">
+    - Unit tests for each stage/indexer
+    - Integration tests with real dependencies
+    - Configuration validation tests
+    - Error handling tests
+  </Accordion>
+
+  <Accordion title="Document configuration">
+    - Provide README with examples
+    - Document all configuration parameters
+    - Include usage examples
+    - Explain limitations and requirements
+  </Accordion>
+</AccordionGroup>
+
+## Plugin Lifecycle
+
+### Initialization
+
+1. **Constructor**: Parse and validate configuration
+2. **start()**: Initialize resources (clients, caches, files)
+3. **validateConnection()** (indexers): Verify connectivity
+
+### Execution
+
+4. **processDocument()** (stages): Transform documents
+5. **sendToIndex()** (indexers): Send batches to external systems
+
+### Cleanup
+
+6. **stop()**: Release resources and close connections
+7. **closeConnection()** (indexers): Close client connections
+
+## Publishing Plugins
+
+Plugins can be:
+- **Internal**: Part of the main Lucille repository
+- **External**: Separate repositories with their own lifecycle
+- **Private**: Company-specific plugins not published publicly
+
+### Distribution
+
+- Maven Central (for open source)
+- Private Maven repository
+- JAR files with dependencies
+
+## See Also
+
+- [Tika Plugin](/api/plugins/tika)
+- [OCR Plugin](/api/plugins/ocr)
+- [Stages Overview](/api/stages/overview)
+- [Creating Custom Stages](/guides/custom-stages)

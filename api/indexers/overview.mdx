@@ -1,0 +1,151 @@
+---
+title: "Indexers Overview"
+description: "Send processed documents to search engines and vector databases"
+icon: "database"
+---
+
+## What are Indexers?
+
+Indexers are responsible for sending processed documents from Lucille to their final destination - typically a search engine or vector database. After documents have been extracted from sources and transformed by stages, indexers handle the actual writing of data to external systems.
+
+## Core Concepts
+
+### Indexer Interface
+
+All indexers extend the `Indexer` base class and implement:
+
+- **Connection validation**: Verify connectivity to the target system
+- **Batch processing**: Send documents in configurable batches for efficiency
+- **Error handling**: Track failed documents and provide detailed error messages
+- **Connection management**: Properly open and close connections
+
+### Common Configuration
+
+All indexers support these common configuration parameters:
+
+<ParamField path="indexer.batchSize" type="integer" default="100">
+  Number of documents to send in each batch request
+</ParamField>
+
+<ParamField path="indexer.ignoreFields" type="string[]">
+  List of document fields to exclude from indexing
+</ParamField>
+
+<ParamField path="indexer.idOverrideField" type="string">
+  Document field to use as the ID instead of the default document ID
+</ParamField>
+
+<ParamField path="indexer.indexOverrideField" type="string">
+  Document field that specifies which index/collection to send the document to
+</ParamField>
+
+<ParamField path="indexer.deletionMarkerField" type="string">
+  Field name that marks a document for deletion
+</ParamField>
+
+<ParamField path="indexer.deletionMarkerFieldValue" type="string">
+  Value that indicates the document should be deleted
+</ParamField>
+
+## Available Indexers
+
+<CardGroup cols={2}>
+  <Card title="Solr" icon="magnifying-glass" href="/api/indexers/solr">
+    Index to Apache Solr with support for SolrCloud
+  </Card>
+  <Card title="OpenSearch" icon="search" href="/api/indexers/opensearch">
+    Send documents to OpenSearch clusters
+  </Card>
+  <Card title="Elasticsearch" icon="search" href="/api/indexers/elasticsearch">
+    Index to Elasticsearch with join support
+  </Card>
+  <Card title="Pinecone" icon="brain-circuit" href="/api/plugins/pinecone">
+    Vector database indexer for embeddings
+  </Card>
+  <Card title="Weaviate" icon="brain-circuit" href="/api/plugins/weaviate">
+    Vector search with object-based schema
+  </Card>
+</CardGroup>
+
+## Deletion Handling
+
+Indexers support marking documents for deletion using marker fields:
+
+```hocon
+indexer {
+  deletionMarkerField: "delete_flag"
+  deletionMarkerFieldValue: "true"
+  deleteByFieldField: "account_id"  # Optional: delete by field
+  deleteByFieldValue: "account_value"  # Value for field-based deletion
+}
+```
+
+When a document has the deletion marker, the indexer will delete it from the target system instead of upserting it.
+
+## Batch Processing
+
+Indexers process documents in batches for efficiency:
+
+1. Documents accumulate until batch size is reached
+2. Batch is sent to the target system
+3. Failed documents are tracked and can be retried
+4. Successful documents are acknowledged
+
+## Error Handling
+
+Indexers track failed documents and return detailed error information:
+
+- Document ID
+- Error message from the target system
+- Ability to continue processing other documents
+- Optional retry logic
+
+## Connection Validation
+
+Before processing begins, indexers validate connectivity:
+
+- Ping the target system
+- Verify authentication credentials
+- Check cluster health (for distributed systems)
+- Validate index/collection existence
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose appropriate batch sizes">
+    - Larger batches (500-1000) for high-throughput scenarios
+    - Smaller batches (50-100) when documents are large or processing is complex
+    - Monitor memory usage and adjust accordingly
+  </Accordion>
+
+  <Accordion title="Handle failures gracefully">
+    - Use deletion markers for removing documents
+    - Configure retry logic for transient failures
+    - Monitor failed document counts
+    - Set up alerts for indexing errors
+  </Accordion>
+
+  <Accordion title="Optimize field mappings">
+    - Use `ignoreFields` to exclude unnecessary data
+    - Map document fields to index schema appropriately
+    - Consider field size limits in the target system
+  </Accordion>
+
+  <Accordion title="Connection management">
+    - Keep connections open during pipeline execution
+    - Configure appropriate timeouts
+    - Use connection pooling when available
+    - Implement proper shutdown procedures
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Solr Indexer" icon="magnifying-glass" href="/api/indexers/solr">
+    Configure Apache Solr indexing
+  </Card>
+  <Card title="OpenSearch Indexer" icon="search" href="/api/indexers/opensearch">
+    Set up OpenSearch indexing
+  </Card>
+</CardGroup>

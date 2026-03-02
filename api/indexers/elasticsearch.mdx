@@ -1,0 +1,421 @@
+---
+title: "Elasticsearch Indexer"
+description: "Index documents to Elasticsearch with join relation support"
+icon: "search"
+---
+
+## Overview
+
+The `ElasticsearchIndexer` sends documents to Elasticsearch using the official Java Client. It provides advanced features including join relations for parent-child documents, routing, and external versioning.
+
+**Java Class**: `com.kmwllc.lucille.indexer.ElasticsearchIndexer`
+
+Source: [ElasticsearchIndexer.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-core/src/main/java/com/kmwllc/lucille/indexer/ElasticsearchIndexer.java)
+
+## Configuration
+
+### Basic Configuration
+
+```hocon
+indexer {
+  type: "elasticsearch"
+  
+  elasticsearch {
+    url: "https://localhost:9200"
+    index: "documents"
+  }
+}
+```
+
+### With Authentication
+
+```hocon
+indexer {
+  type: "elasticsearch"
+  
+  elasticsearch {
+    url: "https://elastic.example.com:9200"
+    index: "my_index"
+    userName: "elastic"
+    password: "${ELASTIC_PASSWORD}"
+  }
+}
+```
+
+## Parameters
+
+<ParamField path="index" type="string" required>
+  Target Elasticsearch index name.
+  
+  **Example**: `"documents"`, `"logs-2024-01"`
+</ParamField>
+
+<ParamField path="url" type="string" required>
+  Elasticsearch HTTP endpoint including protocol and port.
+  
+  **Example**: `"https://localhost:9200"`
+</ParamField>
+
+<ParamField path="update" type="boolean" default="false">
+  Use partial update API to modify only specified fields instead of replacing the entire document.
+</ParamField>
+
+<ParamField path="acceptInvalidCert" type="boolean" default="false">
+  Allow invalid TLS certificates. Use only for development/testing.
+</ParamField>
+
+<ParamField path="indexer.routingField" type="string">
+  Document field that supplies the routing key for shard placement.
+  
+  **Example**: `"user_id"`, `"parent_id"`
+</ParamField>
+
+<ParamField path="indexer.versionType" type="string">
+  Version control type:
+  - `External`: Use external version numbers
+  - `ExternalGte`: External version must be >= current version
+  
+  Requires `KafkaDocument` instances.
+</ParamField>
+
+### Join Field Configuration
+
+Elasticsearch supports parent-child relationships using join fields:
+
+<ParamField path="elasticsearch.join.joinFieldName" type="string">
+  Name of the join field mapped in the index.
+  
+  **Example**: `"document_join"`
+</ParamField>
+
+<ParamField path="elasticsearch.join.isChild" type="boolean" default="false">
+  Whether documents being indexed are children in the join relation.
+</ParamField>
+
+<ParamField path="elasticsearch.join.childName" type="string">
+  Child relation name. Required when `isChild` is `true`.
+  
+  **Example**: `"comment"`
+</ParamField>
+
+<ParamField path="elasticsearch.join.parentDocumentIdSource" type="string">
+  Document field containing the parent document ID. Required when `isChild` is `true`.
+  
+  **Example**: `"parent_id"`
+</ParamField>
+
+<ParamField path="elasticsearch.join.parentName" type="string">
+  Parent relation name. Required when `isChild` is `false` and join is used.
+  
+  **Example**: `"article"`
+</ParamField>
+
+## Features
+
+### Join Relations (Parent-Child)
+
+Elasticsearch join fields enable parent-child document relationships:
+
+<Tabs>
+  <Tab title="Parent Documents">
+    ```hocon
+    elasticsearch {
+      join {
+        joinFieldName: "doc_relation"
+        parentName: "article"
+      }
+    }
+    ```
+    
+    The indexer adds the join field automatically:
+    ```json
+    {
+      "id": "article1",
+      "title": "Parent Article",
+      "doc_relation": "article"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Child Documents">
+    ```hocon
+    elasticsearch {
+      join {
+        joinFieldName: "doc_relation"
+        isChild: true
+        childName: "comment"
+        parentDocumentIdSource: "article_id"
+      }
+    }
+    indexer {
+      routingField: "article_id"  # Required for children
+    }
+    ```
+    
+    Child documents get the join field with parent reference:
+    ```json
+    {
+      "id": "comment1",
+      "text": "Great article!",
+      "doc_relation": {
+        "name": "comment",
+        "parent": "article1"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+**Important**: Child documents must be routed to the same shard as their parent. Set `routingField` to the parent ID field.
+
+### Partial Updates
+
+Use update mode to modify only specific fields:
+
+```hocon
+elasticsearch {
+  update: true
+}
+```
+
+- **Index mode** (update=false): Replaces entire document
+- **Update mode** (update=true): Merges fields, preserving unspecified fields
+
+### Routing
+
+Control shard placement:
+
+```hocon
+indexer {
+  routingField: "tenant_id"
+}
+```
+
+Essential for:
+- Parent-child relationships
+- Multi-tenant applications
+- Query performance optimization
+
+### External Versioning
+
+Use external version numbers (e.g., Kafka offsets):
+
+```hocon
+indexer {
+  versionType: "External"
+}
+```
+
+The indexer extracts version from `KafkaDocument.getOffset()`.
+
+## Index Override Not Supported
+
+<Warning>
+  The `indexOverrideField` configuration is **not supported** by ElasticsearchIndexer. All documents go to the single index specified in the configuration.
+</Warning>
+
+## Connection Validation
+
+The indexer pings Elasticsearch during startup:
+
+```java
+BooleanResponse response = client.ping();
+```
+
+If validation fails, the pipeline will not start.
+
+## Error Handling
+
+Failed documents are returned with error details:
+
+```java
+Set<Pair<Document, String>> failedDocs;
+```
+
+Common errors:
+- Join field validation failures
+- Parent document not found (for children)
+- Routing value missing
+- Version conflicts
+- Mapping type mismatches
+
+## Example Configurations
+
+<Accordion title="Simple indexing">
+```hocon
+indexer {
+  type: "elasticsearch"
+  batchSize: 500
+  
+  elasticsearch {
+    url: "http://localhost:9200"
+    index: "documents"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Parent-child relationships">
+```hocon
+# Parent pipeline
+indexer {
+  type: "elasticsearch"
+  
+  elasticsearch {
+    url: "https://elastic:9200"
+    index: "blog"
+    userName: "elastic"
+    password: "${ES_PASSWORD}"
+    
+    join {
+      joinFieldName: "blog_join"
+      parentName: "article"
+    }
+  }
+}
+
+# Child pipeline (separate)
+indexer {
+  type: "elasticsearch"
+  routingField: "article_id"  # Route to parent's shard
+  
+  elasticsearch {
+    url: "https://elastic:9200"
+    index: "blog"  # Same index
+    userName: "elastic"
+    password: "${ES_PASSWORD}"
+    
+    join {
+      joinFieldName: "blog_join"
+      isChild: true
+      childName: "comment"
+      parentDocumentIdSource: "article_id"
+    }
+  }
+}
+```
+</Accordion>
+
+<Accordion title="With routing and updates">
+```hocon
+indexer {
+  type: "elasticsearch"
+  routingField: "user_id"
+  batchSize: 1000
+  
+  elasticsearch {
+    url: "https://localhost:9200"
+    index: "user_activity"
+    update: true  # Partial updates
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Kafka integration">
+```hocon
+indexer {
+  type: "elasticsearch"
+  versionType: "External"
+  
+  elasticsearch {
+    url: "https://elastic:9200"
+    index: "events"
+  }
+}
+```
+</Accordion>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Design join relationships carefully">
+    - Keep parent-child relationships shallow (one level)
+    - Avoid too many children per parent (Elasticsearch limit: 10000 per shard)
+    - Use join only when you need parent-child queries (e.g., `has_child`, `has_parent`)
+    - Consider denormalization as an alternative
+  </Accordion>
+
+  <Accordion title="Always route child documents">
+    Child documents **must** be on the same shard as their parent:
+    ```hocon
+    routingField: "parent_id_field"
+    ```
+    Without proper routing, child documents will be unreachable.
+  </Accordion>
+
+  <Accordion title="Prepare index mapping first">
+    Create the index with join field mapping before indexing:
+    ```json
+    {
+      "mappings": {
+        "properties": {
+          "doc_relation": {
+            "type": "join",
+            "relations": {
+              "article": "comment"
+            }
+          }
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use separate pipelines for parents and children">
+    Index parents first, then children. This ensures parents exist before children reference them.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Join field already exists error">
+    The indexer automatically adds the join field. If the document already has it:
+    - Remove the join field from your source data
+    - Let the indexer populate it based on configuration
+  </Accordion>
+
+  <Accordion title="Parent document not found">
+    When indexing children:
+    - Ensure parent documents are indexed first
+    - Verify `parentDocumentIdSource` field contains correct parent IDs
+    - Check that routing is configured correctly
+  </Accordion>
+
+  <Accordion title="Index override not supported">
+    If you need multi-index support:
+    - Use separate pipelines for each index
+    - Or use OpenSearchIndexer which supports index override
+  </Accordion>
+
+  <Accordion title="Routing required but missing">
+    For child documents or routing-required indices:
+    - Set `routingField` in configuration
+    - Ensure all documents have the routing field
+    - Verify routing field contains non-null values
+  </Accordion>
+</AccordionGroup>
+
+## Join Field Implementation
+
+The indexer's `ElasticJoinData` class handles join field population:
+
+```java
+public void populateJoinData(Document doc) {
+  if (isChild) {
+    String parentId = doc.getString(parentDocumentIdSource);
+    doc.setField(joinFieldName, getChildNode(parentId));
+  } else {
+    doc.setField(joinFieldName, parentName);
+  }
+}
+```
+
+This happens automatically before documents are sent to Elasticsearch.
+
+## See Also
+
+- [Indexers Overview](/api/indexers/overview)
+- [OpenSearch Indexer](/api/indexers/opensearch)
+- [Elasticsearch Join Documentation](https://www.elastic.co/guide/en/elasticsearch/reference/current/parent-join.html)

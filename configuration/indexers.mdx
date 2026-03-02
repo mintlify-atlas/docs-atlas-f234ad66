@@ -1,0 +1,581 @@
+---
+title: Indexer Configuration
+description: Configure search engine destinations for processed documents
+---
+
+Indexers send processed documents to search engines or other destinations. Lucille currently supports one indexer per configuration, which is used for all pipelines.
+
+## Indexer Structure
+
+The indexer configuration consists of two parts:
+
+1. **General indexer settings** - control batching, field handling, and deletion behavior
+2. **Backend-specific settings** - connection details for Solr, OpenSearch, Elasticsearch, etc.
+
+```hocon
+indexer {
+  type: "Solr"  # or "OpenSearch", "Elasticsearch", "CSV"
+  batchSize: 100
+  batchTimeout: 6000
+  # ... other general settings
+}
+
+# Backend-specific configuration
+solr {
+  url: "http://localhost:8983/solr/collection1"
+}
+```
+
+## General Indexer Settings
+
+<ParamField path="indexer.type" type="string">
+  Indexer type: `Solr`, `OpenSearch`, `Elasticsearch`, or `CSV`
+  
+  Can be omitted if you provide `indexer.class` instead.
+</ParamField>
+
+<ParamField path="indexer.class" type="string">
+  Fully qualified indexer implementation class. Use for plugins and custom implementations.
+  
+  ```hocon
+  indexer {
+    class: "com.kmwllc.lucille.pinecone.indexer.PineconeIndexer"
+  }
+  ```
+</ParamField>
+
+<ParamField path="indexer.batchSize" type="number" default="100">
+  Maximum number of documents in a batch before it is flushed to the destination
+</ParamField>
+
+<ParamField path="indexer.batchTimeout" type="number" default="100">
+  Milliseconds since the previous add or flush before a batch is considered expired and flushed regardless of size
+</ParamField>
+
+<ParamField path="indexer.sendEnabled" type="boolean" default="true">
+  Enable or disable indexing. Set to `false` for testing or when no indexer is required.
+</ParamField>
+
+### Field Handling
+
+<ParamField path="indexer.idOverrideField" type="string">
+  Document field containing an ID to send to the index instead of the default document ID
+  
+  ```hocon
+  indexer {
+    idOverrideField: "custom_id"
+  }
+  ```
+</ParamField>
+
+<ParamField path="indexer.indexOverrideField" type="string">
+  Document field containing the destination index/collection name to use instead of the default
+  
+  ```hocon
+  indexer {
+    indexOverrideField: "target_index"
+  }
+  ```
+</ParamField>
+
+<ParamField path="indexer.ignoreFields" type="list<string>">
+  Fields that should never be sent to the destination
+  
+  ```hocon
+  indexer {
+    ignoreFields: ["temp_data", "internal_notes"]
+  }
+  ```
+</ParamField>
+
+### Deletion Handling
+
+<Note>
+  Deletion features are supported in Solr, OpenSearch, and Pinecone indexers.
+</Note>
+
+<ParamField path="indexer.deletionMarkerField" type="string">
+  Document field that indicates whether a document represents a deletion request
+  
+  ```hocon
+  indexer {
+    deletionMarkerField: "is_deleted"
+    deletionMarkerFieldValue: "true"
+  }
+  ```
+</ParamField>
+
+<ParamField path="indexer.deletionMarkerFieldValue" type="string">
+  Value in `deletionMarkerField` that marks a document as a deletion request
+</ParamField>
+
+<ParamField path="indexer.deleteByFieldField" type="string">
+  Document field containing the name of the field to use in a delete-by-query request
+  
+  Only supported in Solr and OpenSearch indexers.
+</ParamField>
+
+<ParamField path="indexer.deleteByFieldValue" type="string">
+  Document field containing the value to match in a delete-by-query request
+  
+  Only supported in Solr and OpenSearch indexers.
+</ParamField>
+
+### Deletion Behavior
+
+When a document has `deletionMarkerField` set to `deletionMarkerFieldValue`:
+
+1. **Delete by ID** (default): The document with the same ID is deleted from the index
+2. **Delete by Query**: If `deleteByFieldField` and `deleteByFieldValue` are also present, all documents matching that field/value are deleted
+
+<CodeGroup>
+```hocon Delete by ID
+indexer {
+  deletionMarkerField: "is_deleted"
+  deletionMarkerFieldValue: "true"
+}
+
+# Document with id="doc123" and is_deleted="true"
+# -> Deletes document with ID "doc123"
+```
+
+```hocon Delete by Query
+indexer {
+  deletionMarkerField: "is_deleted"
+  deletionMarkerFieldValue: "true"
+  deleteByFieldField: "category"
+  deleteByFieldValue: "obsolete"
+}
+
+# Document with is_deleted="true", category="products"
+# -> Deletes all documents where category="products"
+```
+</CodeGroup>
+
+## Solr Configuration
+
+Lucille supports both basic Solr and SolrCloud configurations.
+
+### Basic Solr (HTTP2SolrClient)
+
+```hocon
+indexer {
+  type: "Solr"
+}
+
+solr {
+  url: "http://localhost:8983/solr/collection1"
+}
+```
+
+<ParamField path="solr.url" type="string" required>
+  Solr URL including the collection name (e.g., `http://localhost:8983/solr/collection1`)
+</ParamField>
+
+### SolrCloud with URL
+
+```hocon
+indexer {
+  type: "Solr"
+}
+
+solr {
+  useCloudClient: true
+  url: ["http://localhost:8983/solr"]  # URL should NOT include collection
+  defaultCollection: "collection2"
+}
+```
+
+<ParamField path="solr.useCloudClient" type="boolean" default="false">
+  Use CloudHTTP2SolrClient for SolrCloud deployments
+</ParamField>
+
+<ParamField path="solr.url" type="list<string>" required>
+  One or more Solr base URLs. For SolrCloud, URLs should NOT include the collection name.
+</ParamField>
+
+<ParamField path="solr.defaultCollection" type="string">
+  Default collection name for SolrCloud. Required when using `useCloudClient`.
+</ParamField>
+
+### SolrCloud with ZooKeeper
+
+```hocon
+indexer {
+  type: "Solr"
+}
+
+solr {
+  useCloudClient: true
+  zkHosts: ["zookeeper1:2181", "zookeeper2:2181", "zookeeper3:2181"]
+  zkChroot: "/solr"  # Optional
+  defaultCollection: "collection3"
+}
+```
+
+<ParamField path="solr.zkHosts" type="list<string>">
+  ZooKeeper connection strings for SolrCloud. Alternative to `url`.
+</ParamField>
+
+<ParamField path="solr.zkChroot" type="string">
+  ZooKeeper chroot path for Solr
+</ParamField>
+
+### Authentication and SSL
+
+<ParamField path="solr.userName" type="string">
+  Username for HTTP basic authentication
+</ParamField>
+
+<ParamField path="solr.password" type="string">
+  Password for HTTP basic authentication
+</ParamField>
+
+<ParamField path="solr.acceptInvalidCert" type="boolean" default="false">
+  Allow invalid TLS certificates. Only enable for testing SSL/HTTPS against localhost.
+</ParamField>
+
+## OpenSearch Configuration
+
+```hocon
+indexer {
+  type: "OpenSearch"
+}
+
+opensearch {
+  url: "https://admin:admin@localhost:9200"
+  index: "my-index"
+  acceptInvalidCert: false
+}
+```
+
+<ParamField path="opensearch.url" type="string" required>
+  OpenSearch HTTP endpoint. Can include credentials in the URL.
+  
+  Use environment variables for production:
+  ```hocon
+  opensearch {
+    url: ${OPENSEARCH_URL}
+  }
+  ```
+</ParamField>
+
+<ParamField path="opensearch.index" type="string" required>
+  Target OpenSearch index name
+  
+  Can be overridden per-document using `indexer.indexOverrideField`.
+</ParamField>
+
+<ParamField path="opensearch.update" type="boolean" default="false">
+  Use partial update API instead of index/replace operation
+</ParamField>
+
+<ParamField path="opensearch.acceptInvalidCert" type="boolean" default="false">
+  Allow invalid TLS certificates. Only enable for testing SSL/HTTPS against localhost.
+</ParamField>
+
+<ParamField path="indexer.routingField" type="string">
+  Document field that supplies the routing key for OpenSearch
+</ParamField>
+
+<ParamField path="indexer.versionType" type="string">
+  Versioning type when using external versions (e.g., `EXTERNAL`)
+</ParamField>
+
+### Environment Variable Example
+
+```hocon
+indexer {
+  type: "OpenSearch"
+}
+
+opensearch {
+  url: "https://localhost:9200"
+  url: ${?OPENSEARCH_URL}  # Override if env var is set
+  index: "default-index"
+  index: ${?OPENSEARCH_INDEX}
+  acceptInvalidCert: false
+}
+```
+
+## Elasticsearch Configuration
+
+```hocon
+indexer {
+  type: "Elasticsearch"
+}
+
+elastic {
+  url: "http://localhost:9200"
+  index: "my-index"
+  type: "lucille-type"
+}
+```
+
+<ParamField path="elastic.url" type="string" required>
+  Elasticsearch HTTP endpoint
+</ParamField>
+
+<ParamField path="elastic.index" type="string" required>
+  Target Elasticsearch index name
+</ParamField>
+
+<ParamField path="elastic.type" type="string">
+  Document type (deprecated in newer Elasticsearch versions)
+</ParamField>
+
+## CSV Indexer
+
+Outputs documents to CSV files instead of a search engine. Useful for testing and data export.
+
+```hocon
+indexer {
+  type: "CSV"
+}
+```
+
+<Note>
+  CSV indexer configuration is minimal. Documents are written to CSV format based on their fields.
+</Note>
+
+## Plugin Indexers
+
+Lucille supports plugin indexers for additional destinations:
+
+### Pinecone Example
+
+```hocon
+indexer {
+  class: "com.kmwllc.lucille.pinecone.indexer.PineconeIndexer"
+  batchSize: 100
+  batchTimeout: 5000
+}
+
+pinecone {
+  apiKey: ${PINECONE_API_KEY}
+  environment: "us-west1-gcp"
+  indexName: "my-vectors"
+}
+```
+
+### Weaviate Example
+
+```hocon
+indexer {
+  class: "com.kmwllc.lucille.weaviate.indexer.WeaviateIndexer"
+}
+
+weaviate {
+  host: "localhost:8080"
+  scheme: "http"
+  className: "Document"
+}
+```
+
+## Complete Examples
+
+<Tabs>
+  <Tab title="Solr Basic">
+    ```hocon
+    indexer {
+      type: "Solr"
+      batchSize: 100
+      batchTimeout: 6000
+      
+      # Don't send these fields
+      ignoreFields: ["temp_field", "debug_info"]
+      
+      # Support deletion requests
+      deletionMarkerField: "is_deleted"
+      deletionMarkerFieldValue: "true"
+    }
+    
+    solr {
+      url: "http://localhost:8983/solr/documents"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="SolrCloud">
+    ```hocon
+    indexer {
+      type: "Solr"
+      batchSize: 250
+      
+      # Route to different collections per document
+      indexOverrideField: "target_collection"
+    }
+    
+    solr {
+      useCloudClient: true
+      zkHosts: [
+        "zk1.example.com:2181",
+        "zk2.example.com:2181",
+        "zk3.example.com:2181"
+      ]
+      zkChroot: "/solr"
+      defaultCollection: "main"
+      
+      # Authentication
+      userName: ${SOLR_USER}
+      password: ${SOLR_PASSWORD}
+    }
+    ```
+  </Tab>
+  
+  <Tab title="OpenSearch">
+    ```hocon
+    indexer {
+      type: "OpenSearch"
+      batchSize: 500
+      batchTimeout: 3000
+      
+      # Custom ID field
+      idOverrideField: "doc_id"
+      
+      # Routing for distributed indexing
+      routingField: "tenant_id"
+      
+      # Support deletions
+      deletionMarkerField: "deleted"
+      deletionMarkerFieldValue: "true"
+      deleteByFieldField: "delete_field"
+      deleteByFieldValue: "delete_value"
+    }
+    
+    opensearch {
+      url: ${OPENSEARCH_URL}
+      index: ${OPENSEARCH_INDEX}
+      update: false
+      acceptInvalidCert: false
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Elasticsearch">
+    ```hocon
+    indexer {
+      type: "Elasticsearch"
+      batchSize: 200
+      ignoreFields: ["internal_field"]
+    }
+    
+    elastic {
+      url: "http://elasticsearch:9200"
+      index: "documents"
+      type: "doc"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Testing (No Indexing)">
+    ```hocon
+    indexer {
+      type: "Solr"
+      
+      # Disable indexing for testing
+      sendEnabled: false
+    }
+    
+    # Solr config still required even when disabled
+    solr {
+      url: "http://localhost:8983/solr/test"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Performance Tuning
+
+<AccordionGroup>
+  <Accordion title="Batch Size">
+    Larger batch sizes reduce network overhead but increase memory usage:
+    
+    - **Small batches (10-50)**: Lower latency, more network requests
+    - **Medium batches (100-250)**: Balanced for most use cases
+    - **Large batches (500-1000)**: Better throughput for bulk indexing
+    
+    ```hocon
+    indexer {
+      batchSize: 250  # Adjust based on document size and network
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Batch Timeout">
+    Controls how long to wait before flushing a partial batch:
+    
+    - **Short timeout (100-1000ms)**: Lower latency, more frequent flushes
+    - **Long timeout (5000-10000ms)**: Better batching, higher latency
+    
+    ```hocon
+    indexer {
+      batchTimeout: 3000  # 3 seconds
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Field Filtering">
+    Remove unnecessary fields before indexing to reduce payload size:
+    
+    ```hocon
+    indexer {
+      ignoreFields: [
+        "temp_*",      # Temporary processing fields
+        "debug_*",     # Debug information
+        "raw_content"  # Original content after extraction
+      ]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection failures">
+    Verify the URL is correct and the search engine is accessible:
+    
+    ```bash
+    # Test Solr
+    curl http://localhost:8983/solr/
+    
+    # Test OpenSearch
+    curl -k https://admin:admin@localhost:9200
+    
+    # Test Elasticsearch
+    curl http://localhost:9200
+    ```
+    
+    Check `acceptInvalidCert` if using self-signed certificates.
+  </Accordion>
+  
+  <Accordion title="Documents not appearing">
+    Common causes:
+    
+    1. **Indexing disabled**: Check `sendEnabled: true`
+    2. **Wrong index**: Verify collection/index name
+    3. **Field mapping issues**: Check destination schema
+    4. **Deletion marker**: Ensure documents don't have deletion marker set
+    
+    Enable debug logging to see indexing activity.
+  </Accordion>
+  
+  <Accordion title="Performance issues">
+    - Increase `batchSize` for better throughput
+    - Reduce `batchTimeout` if documents appear slowly
+    - Check network latency to search engine
+    - Monitor search engine resource usage
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Kafka Configuration" icon="message" href="/configuration/kafka">
+    Enable distributed mode with Kafka
+  </Card>
+  <Card title="Running Lucille" icon="play" href="/getting-started/running">
+    Execute your configured pipeline
+  </Card>
+</CardGroup>

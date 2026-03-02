@@ -1,0 +1,530 @@
+---
+title: Data Transformation Stages
+description: Stages for field operations and data manipulation
+---
+
+## Overview
+
+Data transformation stages handle field-level operations like copying, renaming, deleting, and type conversion. These stages are essential for reshaping document structure and managing field values.
+
+## CopyFields
+
+Copies values from source fields to destination fields. Supports both flat field names and nested JSON paths.
+
+<ParamField path="fieldMapping" type="Map<String, Object>" required>
+  Mapping of source field names to destination field names. Destination can be:
+  - A single string field name
+  - A list of field names to copy to multiple destinations
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values: `overwrite`, `append`, or `skip`.
+  
+  Cannot be used with `isNested=true`.
+</ParamField>
+
+<ParamField path="isNested" type="Boolean" default={false} optional>
+  Whether to treat field names as nested JSON paths. When true:
+  - Field names are split on `.` to create nested structures
+  - `updateMode` is ignored (always overwrites)
+  
+  Cannot be used with `updateMode`.
+</ParamField>
+
+### Example: Simple Field Copying
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.CopyFields
+    name: copy_metadata
+    fieldMapping:
+      title: display_title
+      description: summary
+      author: creator
+```
+
+### Example: Copy to Multiple Destinations
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.CopyFields
+    name: copy_to_multiple
+    fieldMapping:
+      content:
+        - text
+        - searchable_text
+        - indexed_content
+    updateMode: append
+```
+
+### Example: Nested JSON Paths
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.CopyFields
+    name: copy_nested
+    isNested: true
+    fieldMapping:
+      user.name: metadata.author
+      user.email: metadata.contact.email
+      # Creates nested JSON structure in destination
+```
+
+---
+
+## RenameFields
+
+Renames fields by moving values from source to destination and removing the source field.
+
+<ParamField path="fieldMapping" type="Map<String, String>" required>
+  1-to-1 mapping of original field names to new field names. Must have at least one mapping.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+### Example: Rename Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.RenameFields
+    name: standardize_field_names
+    fieldMapping:
+      doc_title: title
+      doc_body: content
+      doc_author: author
+      created_date: publish_date
+```
+
+<Note>
+  Unlike `CopyFields`, `RenameFields` removes the source field after copying.
+</Note>
+
+---
+
+## DeleteFields
+
+Removes specified fields from documents.
+
+<ParamField path="fields" type="List<String>" required>
+  List of field names to delete. At least one field must be specified.
+</ParamField>
+
+### Example: Remove Sensitive Data
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DeleteFields
+    name: remove_pii
+    fields:
+      - ssn
+      - credit_card
+      - password
+      - internal_notes
+```
+
+### Example: Clean Temporary Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DeleteFields
+    name: cleanup_temp_fields
+    fields:
+      - temp_processing_flag
+      - intermediate_result
+      - debug_info
+```
+
+---
+
+## SetStaticValues
+
+Sets fields to static, predefined values.
+
+<ParamField path="staticValues" type="Map<String, Object>" required>
+  Mapping of field names to static values to assign.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing field values: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+### Example: Add Metadata
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.SetStaticValues
+    name: add_metadata
+    staticValues:
+      source: "web_crawler"
+      version: "2.0"
+      environment: "production"
+      processed: true
+```
+
+### Example: Set Defaults
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.SetStaticValues
+    name: set_defaults
+    updateMode: skip  # Only set if field doesn't exist
+    staticValues:
+      status: "pending"
+      priority: 5
+      category: "uncategorized"
+```
+
+---
+
+## RemoveEmptyFields
+
+Removes fields that have null or empty values.
+
+### Example: Clean Empty Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.RemoveEmptyFields
+    name: remove_empty
+```
+
+---
+
+## RemoveDuplicateValues
+
+Removes duplicate values from multivalued fields.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to deduplicate.
+</ParamField>
+
+### Example: Deduplicate Tags
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.RemoveDuplicateValues
+    name: dedupe_tags
+    fields: ["tags", "categories", "keywords"]
+```
+
+---
+
+## DropValues
+
+Removes specific values from fields.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to remove values from.
+</ParamField>
+
+<ParamField path="values" type="List<String>" required>
+  List of values to remove from the specified fields.
+</ParamField>
+
+### Example: Remove Placeholder Values
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DropValues
+    name: remove_placeholders
+    fields: ["description", "notes"]
+    values:
+      - "N/A"
+      - "TBD"
+      - "Unknown"
+      - ""
+```
+
+---
+
+## DropDocument
+
+Marks documents for dropping from the pipeline based on conditions.
+
+<ParamField path="dropIfMissing" type="List<String>" optional>
+  Drop document if any of these fields are missing.
+</ParamField>
+
+<ParamField path="dropIfPresent" type="List<String>" optional>
+  Drop document if any of these fields are present.
+</ParamField>
+
+### Example: Drop Incomplete Documents
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DropDocument
+    name: drop_incomplete
+    dropIfMissing:
+      - title
+      - content
+      - publish_date
+```
+
+### Example: Filter Test Data
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DropDocument
+    name: drop_test_docs
+    dropIfPresent:
+      - test_flag
+      - debug_mode
+```
+
+---
+
+## ParseJson
+
+Parses JSON strings and extracts fields using JsonPath expressions.
+
+<ParamField path="src" type="String" required>
+  Field containing the JSON string to parse.
+</ParamField>
+
+<ParamField path="jsonFieldPaths" type="Map<String, Object>" optional>
+  Mapping of destination field names to JsonPath expressions. If omitted, all JSON fields are copied to the document's top level.
+</ParamField>
+
+<ParamField path="sourceIsBase64" type="Boolean" default={false} optional>
+  Whether the source field is base64 encoded. If true, the stage will decode before parsing.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values.
+</ParamField>
+
+### Example: Parse All JSON Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ParseJson
+    name: parse_json_data
+    src: json_payload
+    # All JSON fields will be copied to document root
+```
+
+### Example: Extract Specific Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ParseJson
+    name: extract_user_info
+    src: api_response
+    jsonFieldPaths:
+      user_id: "$.user.id"
+      user_name: "$.user.profile.name"
+      email: "$.user.contact.email"
+      tags: "$.metadata.tags[*]"
+```
+
+### Example: Parse Base64 Encoded JSON
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ParseJson
+    name: parse_encoded_json
+    src: encoded_data
+    sourceIsBase64: true
+```
+
+---
+
+## ParseDate
+
+Parses date strings into standardized date fields.
+
+<ParamField path="source" type="List<String>" required>
+  List of source fields containing date strings.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination fields for parsed dates.
+</ParamField>
+
+<ParamField path="formats" type="List<String>" required>
+  List of date format patterns to try parsing. Uses Java SimpleDateFormat syntax.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values.
+</ParamField>
+
+### Example: Parse Multiple Date Formats
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ParseDate
+    name: parse_dates
+    source: ["created_date", "modified_date"]
+    dest: ["created_dt", "modified_dt"]
+    formats:
+      - "yyyy-MM-dd'T'HH:mm:ss'Z'"
+      - "yyyy-MM-dd HH:mm:ss"
+      - "MM/dd/yyyy"
+      - "dd-MMM-yyyy"
+```
+
+---
+
+## ParseFloats
+
+Parses string values into floating-point numbers.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to parse as floats.
+</ParamField>
+
+### Example: Parse Numeric Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ParseFloats
+    name: parse_numbers
+    fields:
+      - price
+      - rating
+      - score
+```
+
+---
+
+## ParseFilePath
+
+Parses file paths and extracts components like filename, extension, and directory.
+
+<ParamField path="source" type="String" required>
+  Source field containing file path.
+</ParamField>
+
+<ParamField path="filenameField" type="String" optional>
+  Destination field for filename (without extension).
+</ParamField>
+
+<ParamField path="extensionField" type="String" optional>
+  Destination field for file extension.
+</ParamField>
+
+<ParamField path="directoryField" type="String" optional>
+  Destination field for directory path.
+</ParamField>
+
+### Example: Extract File Components
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ParseFilePath
+    name: parse_file_path
+    source: file_path
+    filenameField: filename
+    extensionField: file_type
+    directoryField: directory
+    # "/data/reports/sales_2024.pdf" →
+    #   filename: "sales_2024"
+    #   file_type: "pdf"
+    #   directory: "/data/reports"
+```
+
+---
+
+## NormalizeFieldNames
+
+Normalizes field names by converting to lowercase and replacing spaces/special characters.
+
+### Example: Standardize Field Names
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.NormalizeFieldNames
+    name: normalize_names
+    # "First Name" → "first_name"
+    # "Email Address" → "email_address"
+```
+
+---
+
+## ComputeFieldSize
+
+Computes the size (number of values) of multivalued fields.
+
+<ParamField path="source" type="List<String>" required>
+  List of source fields to measure.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination fields for size values.
+</ParamField>
+
+### Example: Count Array Elements
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ComputeFieldSize
+    name: count_elements
+    source: ["tags", "categories", "authors"]
+    dest: ["tag_count", "category_count", "author_count"]
+```
+
+---
+
+## Length
+
+Computes the character length of string field values.
+
+<ParamField path="source" type="List<String>" required>
+  List of source fields to measure.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination fields for length values.
+</ParamField>
+
+### Example: Measure Text Length
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.Length
+    name: measure_content_length
+    source: ["title", "description", "content"]
+    dest: ["title_length", "desc_length", "content_length"]
+```
+
+---
+
+## Timestamp
+
+Adds a timestamp field with the current processing time.
+
+<ParamField path="field" type="String" default="timestamp" optional>
+  Name of the field to store the timestamp.
+</ParamField>
+
+### Example: Add Processing Timestamp
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.Timestamp
+    name: add_timestamp
+    field: processed_at
+```
+
+---
+
+## Base64Decode
+
+Decodes base64-encoded field values.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to decode.
+</ParamField>
+
+### Example: Decode Encoded Content
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.Base64Decode
+    name: decode_content
+    fields: ["encoded_data", "attachment"]
+```

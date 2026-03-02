@@ -1,0 +1,302 @@
+---
+title: Local Mode Deployment
+description: Running all Lucille components in a single JVM for development and testing
+---
+
+## Overview
+
+Local mode runs all Lucille components (Runner, Worker, Indexer) inside a single JVM process. This deployment mode is ideal for:
+
+- **Development and testing** - Quick iteration without external dependencies
+- **Small-scale ingestion** - Processing datasets that fit within single-machine resources
+- **Proof of concept** - Evaluating Lucille before scaling to distributed mode
+- **Simple use cases** - When throughput requirements don't demand horizontal scaling
+
+<Note>
+Local mode uses in-memory queues for inter-component communication. No external message broker is required.
+</Note>
+
+## Architecture
+
+In local mode, the Runner launches Worker and Indexer threads within the same JVM:
+
+```
+┌─────────────────────────────────────┐
+│         Single JVM Process          │
+│                                     │
+│  ┌────────────┐                    │
+│  │  Runner    │ (Main Thread)      │
+│  │ + Connector│                    │
+│  └─────┬──────┘                    │
+│        │                            │
+│        ├─→ In-Memory Queues         │
+│        │                            │
+│  ┌─────▼──────┐   ┌─────────────┐ │
+│  │  Worker    │   │   Indexer   │ │
+│  │  Thread(s) │   │   Thread    │ │
+│  └────────────┘   └─────────────┘ │
+└─────────────────────────────────────┘
+```
+
+<Steps>
+
+### Step 1: Prepare Configuration
+
+Create a configuration file defining your connector, pipeline, and indexer:
+
+<CodeGroup>
+
+```hocon application.conf
+connectors: [
+  {
+    class: "com.kmwllc.lucille.connector.FileConnector",
+    paths: ["data/input.csv"],
+    name: "file_connector",
+    pipeline: "my_pipeline"
+    fileHandlers: {
+      csv: { }
+    }
+  }
+]
+
+pipelines: [
+  {
+    name: "my_pipeline",
+    stages: [
+      {
+        class: "com.kmwllc.lucille.stage.RenameFields"
+        fieldMapping {
+          "old_name" : "new_name"
+        }
+      }
+    ]
+  }
+]
+
+indexer {
+  type: "Solr"
+  batchSize: 100
+  batchTimeout: 100
+}
+
+solr {
+  useCloudClient: true
+  defaultCollection: "my_collection"
+  url: ["http://localhost:8983/solr"]
+}
+```
+
+</CodeGroup>
+
+### Step 2: Run Lucille
+
+Execute the Runner class from the command line:
+
+```bash
+java \
+  -Dconfig.file=path/to/application.conf \
+  -cp 'lucille-core/target/lucille.jar:lucille-core/target/lib/*' \
+  com.kmwllc.lucille.core.Runner
+```
+
+**Command Breakdown:**
+- `-Dconfig.file` - Path to your configuration file
+- `-cp` - Classpath including Lucille JAR and dependencies
+- `com.kmwllc.lucille.core.Runner` - Main class (no arguments = local mode)
+
+### Step 3: Monitor Progress
+
+Lucille outputs real-time metrics to the console:
+
+```
+25/10/31 13:40:21 6790d2e9-1079  INFO WorkerPool: 27017 docs processed. 
+  One minute rate: 1787.10 docs/sec. Mean pipeline latency: 10.63 ms/doc.
+
+25/10/31 13:40:22 6790d2e9-1079  INFO Indexer: 17016 docs indexed. 
+  One minute rate: 455.07 docs/sec. Mean backend latency: 6.90 ms/doc.
+```
+
+### Step 4: Verify Completion
+
+Upon completion, Lucille prints a run summary:
+
+```
+25/10/31 13:46:47  INFO Runner: 
+RUN SUMMARY: Success. 1/1 connectors complete. 
+  All published docs succeeded.
+connector1: complete. 200000 docs succeeded. 
+  0 docs failed. 0 docs dropped. Time: 416.47 secs.
+```
+
+</Steps>
+
+## Thread Configuration
+
+Local mode creates these threads:
+
+1. **Main Thread** - Launches components and monitors completion
+2. **Connector Thread** - Reads source data and publishes documents
+3. **Worker Thread(s)** - Process documents through pipeline stages
+4. **Indexer Thread** - Batches and sends documents to destination
+
+### Configuring Worker Threads
+
+By default, Lucille creates one worker thread per CPU core. Override this in your config:
+
+```hocon
+worker {
+  numThreads: 4  # Explicitly set worker thread count
+}
+```
+
+<Warning>
+Setting `numThreads` too high can cause memory pressure and thread contention. Start conservatively and tune based on profiling.
+</Warning>
+
+## Use Cases
+
+### Development and Testing
+
+**Best For:**
+- Writing and debugging custom stages
+- Testing pipeline configurations
+- Validating connector behavior
+- Integration tests in CI/CD
+
+**Example:**
+```bash
+# Quick test with small dataset
+java -Dconfig.file=test.conf \
+  -cp 'lucille-core/target/lucille.jar:lucille-core/target/lib/*' \
+  com.kmwllc.lucille.core.Runner
+```
+
+### Small-Scale Production Workloads
+
+**Best For:**
+- Periodic batch jobs (under 1M documents)
+- Non-time-critical ingestion
+- Single-source ETL pipelines
+- Resource-constrained environments
+
+**Example:**
+```bash
+# Nightly batch job
+0 2 * * * /usr/local/bin/run_lucille_local.sh
+```
+
+## Limitations
+
+<Warning>
+Local mode has important constraints that make it unsuitable for large-scale production deployments.
+</Warning>
+
+### Single Point of Failure
+
+If the JVM crashes or the process is killed, **all in-flight work is lost**. There is no recovery mechanism.
+
+### Memory Constraints
+
+All components share the same heap:
+- In-memory queues hold documents between stages
+- Large documents or deep queues can cause OutOfMemoryErrors
+- Worker threads and indexer batches compete for heap space
+
+**Mitigation:**
+```bash
+# Increase heap size for larger workloads
+java -Xmx8g -Xms4g \
+  -Dconfig.file=application.conf \
+  -cp 'lucille-core/target/lucille.jar:lucille-core/target/lib/*' \
+  com.kmwllc.lucille.core.Runner
+```
+
+### No Horizontal Scaling
+
+You cannot add more machines to increase throughput. Performance is bounded by:
+- Single-machine CPU cores (limits worker parallelism)
+- Single-machine memory (limits queue depth and batch sizes)
+- Single-machine network I/O (limits indexing throughput)
+
+### Limited Observability
+
+Metrics are logged to console only. There is no:
+- Centralized metrics collection
+- Distributed tracing
+- External monitoring integration
+
+## Validation and Testing
+
+Lucille provides a validation mode to check configurations before running:
+
+```bash
+java -Dconfig.file=application.conf \
+  -cp 'lucille-core/target/lucille.jar:lucille-core/target/lib/*' \
+  com.kmwllc.lucille.core.Runner \
+  -validate
+```
+
+**Output:**
+```
+Pipeline Configuration is valid.
+Connector Configuration is valid.
+Indexer Configuration is valid.
+```
+
+<Note>
+Always validate configurations in CI/CD pipelines to catch errors before deployment.
+</Note>
+
+## Graceful Shutdown
+
+Local mode handles `SIGINT` (Ctrl+C) gracefully:
+
+```java
+// Runner.java:212-218
+Signal.handle(new Signal("INT"), signal -> {
+  if (state != null) {
+    log.info("Runner attempting clean shutdown after receiving INT signal");
+    state.close();  // Stops connector, workers, indexer
+  }
+  SystemHelper.exit(0);
+});
+```
+
+This ensures:
+1. Connector stops producing new documents
+2. Workers finish processing in-flight documents
+3. Indexer flushes final batch
+4. Connections are closed cleanly
+
+## When to Use Local Mode
+
+<Tabs>
+  <Tab title="✅ Use Local Mode When">
+    - Developing and testing pipelines locally
+    - Processing small datasets (under 100K documents)
+    - Running one-off batch jobs
+    - Evaluating Lucille before production
+    - Constrained to single-machine deployment
+    - External dependencies (Kafka) are not available
+  </Tab>
+  
+  <Tab title="❌ Avoid Local Mode When">
+    - Processing millions of documents
+    - Requiring high throughput (over 1000 docs/sec)
+    - Needing fault tolerance and recovery
+    - Scaling horizontally across machines
+    - Running 24/7 production workloads
+    - Integrating with monitoring systems
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Distributed Mode" icon="server" href="/deployment/distributed-mode">
+    Scale to distributed deployment with Kafka for production workloads
+  </Card>
+  <Card title="Production Best Practices" icon="shield-check" href="/deployment/production">
+    Learn monitoring, tuning, and troubleshooting for production systems
+  </Card>
+</CardGroup>

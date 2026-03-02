@@ -1,0 +1,555 @@
+---
+title: AI & Machine Learning Stages
+description: Stages leveraging AI/ML models for document processing
+---
+
+## Overview
+
+AI and Machine Learning stages integrate powerful models for embeddings, text generation, chunking, and intelligent document processing. These stages enable advanced use cases like semantic search, RAG (Retrieval-Augmented Generation), and LLM-powered enrichment.
+
+## OpenAIEmbed
+
+Generates vector embeddings using OpenAI's embedding models. Supports both document-level and child document embeddings.
+
+<ParamField path="source" type="String" required>
+  Field containing the text to embed.
+</ParamField>
+
+<ParamField path="dest" type="String" default="embeddings" optional>
+  Field to store the embedding vectors.
+</ParamField>
+
+<ParamField path="apiKey" type="String" required>
+  OpenAI API key. Should be stored securely (e.g., environment variable).
+</ParamField>
+
+<ParamField path="embedDocument" type="Boolean" required>
+  Whether to embed the document's source field.
+</ParamField>
+
+<ParamField path="embedChildren" type="Boolean" required>
+  Whether to embed the document's children source fields.
+</ParamField>
+
+<ParamField path="modelName" type="String" default="text-embedding-3-small" optional>
+  OpenAI embedding model to use:
+  - `text-embedding-3-small` - Fast, cost-effective (default)
+  - `text-embedding-3-large` - Higher quality, larger dimensions
+  - `text-embedding-ada-002` - Legacy model
+</ParamField>
+
+<ParamField path="dimensions" type="Integer" optional>
+  Number of dimensions for the embedding vector. Only supported in `text-embedding-3-*` models. If not specified, uses the model's default dimensions.
+</ParamField>
+
+<Info>
+  The stage automatically truncates text to OpenAI's token limit (8191 tokens) to prevent API errors.
+</Info>
+
+### Example: Basic Document Embedding
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.OpenAIEmbed
+    name: embed_content
+    source: content
+    dest: content_vector
+    apiKey: ${OPENAI_API_KEY}
+    embedDocument: true
+    embedChildren: false
+    modelName: text-embedding-3-small
+```
+
+### Example: Embed Document and Children
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ChunkText
+    name: chunk_content
+    source: content
+    dest: text
+    chunkingMethod: sentence
+    chunksToMerge: 5
+    characterLimit: 2000
+  
+  - class: com.kmwllc.lucille.stage.OpenAIEmbed
+    name: embed_chunks
+    source: text
+    dest: embeddings
+    apiKey: ${OPENAI_API_KEY}
+    embedDocument: false
+    embedChildren: true  # Embed the chunks created by ChunkText
+    modelName: text-embedding-3-large
+    dimensions: 1536
+```
+
+### Example: Semantic Search Pipeline
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.OpenAIEmbed
+    name: create_embeddings
+    source: combined_text
+    dest: search_vector
+    apiKey: ${OPENAI_API_KEY}
+    embedDocument: true
+    embedChildren: false
+    modelName: text-embedding-3-small
+    dimensions: 512  # Smaller dimensions for faster search
+```
+
+---
+
+## ChunkText
+
+Splits text into smaller chunks for processing by LLMs or embedding models. Produces child documents containing the chunks.
+
+<ParamField path="source" type="String" required>
+  Field containing the text to chunk.
+</ParamField>
+
+<ParamField path="dest" type="String" default="text" optional>
+  Field name for chunk content in child documents.
+</ParamField>
+
+<ParamField path="chunkingMethod" type="String" default="sentence" optional>
+  How to split the text:
+  - `sentence` - Use OpenNLP sentence detection (default)
+  - `paragraph` - Split on consecutive line breaks
+  - `fixed` - Split by character count
+  - `custom` - Use custom regex pattern
+</ParamField>
+
+<ParamField path="regex" type="String" optional>
+  Custom regex pattern for splitting. Required when `chunkingMethod=custom`.
+</ParamField>
+
+<ParamField path="lengthToSplit" type="Integer" optional>
+  Character length for each chunk. Required when `chunkingMethod=fixed`.
+</ParamField>
+
+<ParamField path="cleanChunks" type="Boolean" default={false} optional>
+  Whether to remove newlines and trim whitespace from chunks.
+</ParamField>
+
+<ParamField path="preMergeMinChunkLen" type="Integer" optional>
+  Minimum chunk length in characters. Smaller chunks are merged with neighboring chunks.
+</ParamField>
+
+<ParamField path="preMergeMaxChunkLen" type="Integer" optional>
+  Maximum chunk length before merging. Chunks are truncated to this length.
+</ParamField>
+
+<ParamField path="chunksToMerge" type="Integer" default={1} optional>
+  Number of initial chunks to merge into final chunks. 
+  
+  Example: `chunksToMerge=2` merges `[chunk1, chunk2]`, `[chunk3, chunk4]`, etc.
+</ParamField>
+
+<ParamField path="chunksToOverlap" type="Integer" optional>
+  Number of chunks to overlap when merging. Creates sliding window.
+  
+  Example: `chunksToMerge=3, chunksToOverlap=1` creates `[c1,c2,c3]`, `[c3,c4,c5]`, `[c5,c6,c7]`
+  
+  Cannot be used with `overlapPercentage`.
+</ParamField>
+
+<ParamField path="overlapPercentage" type="Integer" default={0} optional>
+  Percentage of neighboring chunks to include as overlap. 
+  
+  Cannot be used with `chunksToOverlap`.
+</ParamField>
+
+<ParamField path="characterLimit" type="Integer" optional>
+  Hard limit on final chunk size. Applied after all other processing.
+</ParamField>
+
+<Note>
+  This stage creates **attached child documents**. Use `EmitNestedChildren` stage afterward to emit children as separate documents for indexing.
+</Note>
+
+### Child Document Fields
+
+Each chunk creates a child document with:
+- `id` - Format: `parent_id-chunk_number`
+- `parent_id` - ID of parent document
+- `offset` - Character offset from start of source text
+- `length` - Number of characters in chunk
+- `chunk_number` - Chunk sequence number (1-indexed)
+- `total_chunks` - Total number of chunks created
+- `{dest}` - The chunk content (default field name: `text`)
+
+### Example: Sentence-Based Chunking for RAG
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ChunkText
+    name: chunk_for_rag
+    source: content
+    dest: text
+    chunkingMethod: sentence
+    chunksToMerge: 5        # Combine 5 sentences per chunk
+    chunksToOverlap: 1      # Overlap by 1 sentence
+    cleanChunks: true
+    characterLimit: 2000    # Hard limit for LLM context
+  
+  - class: com.kmwllc.lucille.stage.EmitNestedChildren
+    drop_parent: true       # Only index the chunks
+```
+
+### Example: Paragraph Chunking
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ChunkText
+    name: chunk_paragraphs
+    source: article_text
+    chunkingMethod: paragraph
+    preMergeMinChunkLen: 100  # Merge small paragraphs
+    cleanChunks: true
+```
+
+### Example: Fixed-Size Chunks
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ChunkText
+    name: fixed_chunks
+    source: log_data
+    chunkingMethod: fixed
+    lengthToSplit: 500
+    overlapPercentage: 10   # 10% overlap between chunks
+```
+
+### Example: Custom Regex Chunking
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ChunkText
+    name: chunk_by_section
+    source: document_text
+    chunkingMethod: custom
+    regex: "(?m)^#{1,3}\\s+"  # Split on markdown headers
+    cleanChunks: true
+```
+
+---
+
+## PromptOllama
+
+Sends documents to local LLMs via Ollama for enrichment, extraction, or generation tasks.
+
+<ParamField path="hostURL" type="String" required>
+  URL to your Ollama server (e.g., `http://localhost:11434`).
+</ParamField>
+
+<ParamField path="modelName" type="String" required>
+  Name of the Ollama model to use (e.g., `llama2`, `mistral`, `phi3`).
+  
+  See [Ollama library](https://ollama.ai/library) for available models.
+</ParamField>
+
+<ParamField path="systemPrompt" type="String" optional>
+  System prompt instructing the LLM what to do with the document. If not specified, uses the model's default system prompt (if any).
+</ParamField>
+
+<ParamField path="fields" type="List<String>" optional>
+  Specific fields to send to the LLM. If empty or not specified, sends the entire document.
+</ParamField>
+
+<ParamField path="requireJSON" type="Boolean" default={false} optional>
+  Whether to require JSON-formatted responses:
+  - `true` - Stage throws exception on non-JSON responses, sets `format: "json"` in request
+  - `false` - Non-JSON responses are placed in `ollamaResponse` field
+</ParamField>
+
+<ParamField path="timeout" type="Long" optional>
+  Request timeout in seconds. Defaults to Ollama's default (10 seconds).
+  
+  Increase for complex prompts or when running multiple workers.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle fields extracted from JSON responses: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+<Info>
+  It's highly recommended to instruct the LLM to output JSON for better reliability and automatic field extraction.
+</Info>
+
+### Example: Extract Entities
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.PromptOllama
+    name: extract_entities
+    hostURL: http://localhost:11434
+    modelName: llama2
+    systemPrompt: |
+      Extract all person names, organizations, and locations from the text.
+      Return your response as JSON with keys: "people", "organizations", "locations".
+      Each key should have an array of strings.
+    fields: ["content"]
+    requireJSON: true
+```
+
+### Example: Generate Summaries
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.PromptOllama
+    name: generate_summary
+    hostURL: http://localhost:11434
+    modelName: mistral
+    systemPrompt: |
+      Provide a concise 2-3 sentence summary of the document.
+      Return JSON with key "summary".
+    requireJSON: true
+    timeout: 30
+```
+
+### Example: Content Classification
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.PromptOllama
+    name: classify_content
+    hostURL: http://localhost:11434
+    modelName: phi3
+    systemPrompt: |
+      Classify this document into one of these categories:
+      "technical", "business", "legal", "marketing", "other".
+      Return JSON with keys "category" and "confidence" (0-1).
+    fields: ["title", "description"]
+    requireJSON: true
+```
+
+### Example: Sentiment Analysis
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.PromptOllama
+    name: analyze_sentiment
+    hostURL: http://localhost:11434
+    modelName: llama2
+    systemPrompt: |
+      Analyze the sentiment of this text.
+      Return JSON with "sentiment" (positive/negative/neutral) and "score" (-1 to 1).
+    fields: ["review_text"]
+    requireJSON: true
+    updateMode: skip  # Don't overwrite existing sentiment
+```
+
+---
+
+## RandomVector
+
+Generates random vectors for testing embedding pipelines and vector search.
+
+<ParamField path="dest" type="String" required>
+  Destination field for the random vector.
+</ParamField>
+
+<ParamField path="dimensions" type="Integer" required>
+  Number of dimensions in the vector.
+</ParamField>
+
+### Example: Generate Test Vectors
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.RandomVector
+    name: create_test_vectors
+    dest: test_embedding
+    dimensions: 768
+```
+
+---
+
+## EmbeddedPython
+
+Executes Python code within the JVM using Jython for custom transformations.
+
+<ParamField path="script" type="String" required>
+  Python code to execute. Has access to `doc` object.
+</ParamField>
+
+<ParamField path="scriptPath" type="String" optional>
+  Path to external Python script file. Alternative to inline `script`.
+</ParamField>
+
+<Warning>
+  Uses Jython which supports Python 2.7 syntax. For Python 3, use `ExternalPython` instead.
+</Warning>
+
+### Example: Custom Field Logic
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.EmbeddedPython
+    name: custom_scoring
+    script: |
+      if doc.has("views") and doc.has("likes"):
+          views = doc.getInt("views")
+          likes = doc.getInt("likes")
+          score = (likes / views) * 100 if views > 0 else 0
+          doc.setField("engagement_score", score)
+```
+
+---
+
+## ExternalPython
+
+Executes external Python 3 scripts for advanced processing.
+
+<ParamField path="scriptPath" type="String" required>
+  Path to Python script to execute.
+</ParamField>
+
+<ParamField path="pythonExecutable" type="String" optional>
+  Path to Python executable. Defaults to system `python3`.
+</ParamField>
+
+### Example: ML Model Inference
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ExternalPython
+    name: run_ml_model
+    scriptPath: /scripts/classify_document.py
+    pythonExecutable: /usr/bin/python3
+```
+
+---
+
+## ApplyJavascript
+
+Executes JavaScript code for document transformation using GraalVM.
+
+<ParamField path="script" type="String" optional>
+  Inline JavaScript code to execute.
+</ParamField>
+
+<ParamField path="scriptPath" type="String" optional>
+  Path to external JavaScript file.
+</ParamField>
+
+<ParamField path="returnField" type="String" optional>
+  Field to store script return value.
+</ParamField>
+
+### Example: Custom Transformation
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyJavascript
+    name: calculate_score
+    script: |
+      var views = doc.getInt('views');
+      var clicks = doc.getInt('clicks');
+      var ctr = views > 0 ? (clicks / views) * 100 : 0;
+      doc.setField('click_through_rate', ctr);
+```
+
+---
+
+## ApplyJSONata
+
+Applies JSONata transformations to JSON data.
+
+<ParamField path="source" type="String" required>
+  Source field containing JSON data.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for transformation result.
+</ParamField>
+
+<ParamField path="expression" type="String" required>
+  JSONata expression to apply.
+</ParamField>
+
+### Example: Transform JSON
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyJSONata
+    name: transform_metadata
+    source: api_response
+    dest: processed_data
+    expression: |
+      {
+        "user": user.name,
+        "email": user.contact.email,
+        "tags": items.tag
+      }
+```
+
+---
+
+## Best Practices for AI/ML Stages
+
+<CardGroup cols={2}>
+  <Card title="Rate Limiting" icon="gauge">
+    For API-based stages (OpenAI), implement rate limiting or use multiple API keys to avoid throttling.
+  </Card>
+  
+  <Card title="Chunk Sizing" icon="scissors">
+    For RAG applications, chunks of 500-2000 characters with 10-20% overlap typically work well.
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    AI/ML stages can fail due to API limits, timeouts, or model errors. Configure appropriate error handling and retries.
+  </Card>
+  
+  <Card title="Cost Management" icon="dollar-sign">
+    Monitor API usage for OpenAI stages. Use cheaper models (text-embedding-3-small) for development and testing.
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### RAG (Retrieval-Augmented Generation) Pipeline
+
+```yaml
+stages:
+  # 1. Chunk the document
+  - class: com.kmwllc.lucille.stage.ChunkText
+    source: content
+    chunkingMethod: sentence
+    chunksToMerge: 5
+    chunksToOverlap: 1
+    characterLimit: 1500
+  
+  # 2. Generate embeddings for chunks
+  - class: com.kmwllc.lucille.stage.OpenAIEmbed
+    source: text
+    apiKey: ${OPENAI_API_KEY}
+    embedDocument: false
+    embedChildren: true
+    modelName: text-embedding-3-small
+  
+  # 3. Emit children as separate documents
+  - class: com.kmwllc.lucille.stage.EmitNestedChildren
+    drop_parent: true
+```
+
+### Document Enrichment with LLM
+
+```yaml
+stages:
+  # 1. Extract key information
+  - class: com.kmwllc.lucille.stage.PromptOllama
+    hostURL: http://localhost:11434
+    modelName: llama2
+    systemPrompt: "Extract key topics, entities, and summary as JSON"
+    requireJSON: true
+  
+  # 2. Generate embeddings
+  - class: com.kmwllc.lucille.stage.OpenAIEmbed
+    source: summary
+    dest: summary_vector
+    apiKey: ${OPENAI_API_KEY}
+    embedDocument: true
+    embedChildren: false
+```

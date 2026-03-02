@@ -1,0 +1,365 @@
+---
+title: "OpenSearch Indexer"
+description: "Index documents to OpenSearch using the Java client"
+icon: "search"
+---
+
+## Overview
+
+The `OpenSearchIndexer` sends documents to OpenSearch clusters using the official Java client. It supports bulk operations, partial updates, routing, and external versioning.
+
+**Java Class**: `com.kmwllc.lucille.indexer.OpenSearchIndexer`
+
+Source: [OpenSearchIndexer.java](https://github.com/kmwtechnology/lucille/blob/master/lucille-core/src/main/java/com/kmwllc/lucille/indexer/OpenSearchIndexer.java)
+
+## Configuration
+
+### Basic Configuration
+
+```hocon
+indexer {
+  type: "opensearch"
+  
+  opensearch {
+    url: "https://localhost:9200"
+    index: "documents"
+  }
+}
+```
+
+### With Authentication
+
+```hocon
+indexer {
+  type: "opensearch"
+  
+  opensearch {
+    url: "https://search.example.com:9200"
+    index: "my_index"
+    userName: "admin"
+    password: "admin_password"
+  }
+}
+```
+
+## Parameters
+
+<ParamField path="index" type="string" required>
+  Target OpenSearch index name where documents will be stored.
+  
+  **Example**: `"documents"`, `"logs-2024"`
+</ParamField>
+
+<ParamField path="url" type="string" required>
+  OpenSearch HTTP endpoint including protocol and port.
+  
+  **Example**: `"https://localhost:9200"`, `"http://opensearch.local:9200"`
+</ParamField>
+
+<ParamField path="update" type="boolean" default="false">
+  Use the partial update API instead of index/replace operations. When `true`, only specified fields are updated; existing fields are preserved.
+</ParamField>
+
+<ParamField path="acceptInvalidCert" type="boolean" default="false">
+  Allow invalid TLS certificates. Only use for development/testing environments.
+</ParamField>
+
+<ParamField path="indexer.routingField" type="string">
+  Document field that supplies the routing key. Used to control which shard stores the document.
+  
+  **Example**: `"user_id"`, `"tenant_id"`
+</ParamField>
+
+<ParamField path="indexer.versionType" type="string">
+  Versioning type when using external version control. Options:
+  - `External`: Use external version number
+  - `ExternalGte`: External version must be >= current version
+  
+  Requires documents to be `KafkaDocument` instances with offset information.
+</ParamField>
+
+## Features
+
+### Index Override
+
+Route documents to different indices dynamically:
+
+```hocon
+indexer {
+  indexOverrideField: "target_index"
+  
+  opensearch {
+    index: "default_index"  # Fallback index
+  }
+}
+```
+
+Documents with a `target_index` field will be sent to that index instead.
+
+### Partial Updates
+
+Use the update API to modify only specific fields:
+
+```hocon
+opensearch {
+  update: true
+}
+```
+
+**Behavior**:
+- **Update = false** (default): Document is replaced entirely (index operation)
+- **Update = true**: Only provided fields are modified; other fields remain unchanged
+
+### Routing Control
+
+Control document placement across shards:
+
+```hocon
+indexer {
+  routingField: "tenant_id"
+}
+```
+
+All documents with the same `tenant_id` value will be stored on the same shard, improving query performance for tenant-specific searches.
+
+### External Versioning
+
+Use Kafka offsets or other external version numbers:
+
+```hocon
+indexer {
+  versionType: "External"
+}
+```
+
+Requires documents to be `KafkaDocument` instances. The Kafka offset is used as the version number, enabling exactly-once semantics.
+
+### Deletion Support
+
+<Tabs>
+  <Tab title="Delete by ID">
+    ```hocon
+    indexer {
+      deletionMarkerField: "deleted"
+      deletionMarkerFieldValue: "true"
+    }
+    ```
+    
+    Documents are deleted by ID using bulk delete operations.
+  </Tab>
+  
+  <Tab title="Delete by Query">
+    ```hocon
+    indexer {
+      deletionMarkerField: "deleted"
+      deletionMarkerFieldValue: "true"
+      deleteByFieldField: "account_id"
+      deleteByFieldValue: "account_num"
+    }
+    ```
+    
+    Uses OpenSearch's delete-by-query API with terms queries:
+    
+    ```json
+    {
+      "query": {
+        "bool": {
+          "should": [
+            {"terms": {"account_id": ["val1", "val2"]}}
+          ],
+          "minimum_should_match": 1
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Bulk Request Processing
+
+The indexer optimizes operations:
+
+1. **Batch accumulation**: Documents collected up to `batchSize`
+2. **Grouping by operation**: Separate uploads from deletes
+3. **Index grouping**: Operations grouped by target index
+4. **Conflict resolution**:
+   - If a document ID appears in both upload and delete, the most recent operation wins
+   - Uploads remove previous delete requests
+   - Deletes remove previous upload requests
+
+## Connection Validation
+
+Startup validation ensures OpenSearch is accessible:
+
+```java
+boolean response = client.ping().value();
+```
+
+If the ping fails, the pipeline will not start.
+
+## Error Handling
+
+Failed documents are tracked with detailed error messages:
+
+```java
+Set<Pair<Document, String>> failedDocs;
+// Each pair contains the document and the error reason
+```
+
+Common errors:
+- Index not found
+- Mapping type errors
+- Routing value missing when required
+- Version conflict
+
+## Example Configurations
+
+<Accordion title="Basic indexing">
+```hocon
+indexer {
+  type: "opensearch"
+  batchSize: 500
+  
+  opensearch {
+    url: "https://localhost:9200"
+    index: "documents"
+    acceptInvalidCert: true  # Dev only
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Multi-tenant with routing">
+```hocon
+indexer {
+  type: "opensearch"
+  routingField: "tenant_id"
+  batchSize: 1000
+  
+  opensearch {
+    url: "https://opensearch.prod.example.com:9200"
+    index: "tenant_data"
+    userName: "indexer_user"
+    password: "${OPENSEARCH_PASSWORD}"
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Partial updates with deletion">
+```hocon
+indexer {
+  type: "opensearch"
+  deletionMarkerField: "status"
+  deletionMarkerFieldValue: "deleted"
+  
+  opensearch {
+    url: "http://localhost:9200"
+    index: "products"
+    update: true  # Use partial updates
+  }
+}
+```
+</Accordion>
+
+<Accordion title="Kafka integration with versioning">
+```hocon
+indexer {
+  type: "opensearch"
+  versionType: "External"
+  routingField: "partition_key"
+  
+  opensearch {
+    url: "https://opensearch:9200"
+    index: "kafka_events"
+  }
+}
+```
+</Accordion>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use routing for multi-tenant applications">
+    Setting `routingField` ensures all documents for a tenant are on the same shard:
+    - Faster tenant-specific queries
+    - Efficient deletion of tenant data
+    - Better cache utilization
+  </Accordion>
+
+  <Accordion title="Choose update mode carefully">
+    - **Index mode** (update=false): Faster, replaces entire document
+    - **Update mode** (update=true): Slower, preserves unspecified fields
+    
+    Use update mode when you only have partial document data.
+  </Accordion>
+
+  <Accordion title="Optimize batch size">
+    - Default: 100 documents
+    - Increase to 500-1000 for small documents
+    - Decrease for large documents with many fields
+    - Monitor OpenSearch heap and bulk queue
+  </Accordion>
+
+  <Accordion title="Handle version conflicts">
+    When using external versioning:
+    - Ensure Kafka offsets are monotonically increasing
+    - Handle version conflict errors appropriately
+    - Consider using `ExternalGte` instead of `External`
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection timeout">
+    - Verify OpenSearch is running and accessible
+    - Check network connectivity and firewall rules
+    - Confirm correct URL and port
+    - Test with: `curl -k https://localhost:9200`
+  </Accordion>
+
+  <Accordion title="Index not found error">
+    Create the index in OpenSearch before indexing:
+    ```bash
+    curl -X PUT "https://localhost:9200/documents" -H 'Content-Type: application/json' -d'
+    {
+      "mappings": {
+        "properties": {
+          "title": {"type": "text"},
+          "timestamp": {"type": "date"}
+        }
+      }
+    }'
+    ```
+  </Accordion>
+
+  <Accordion title="Mapping errors">
+    - Ensure index mapping supports your document fields
+    - Use `ignoreFields` to exclude incompatible fields
+    - Check for type mismatches (e.g., sending string to long field)
+  </Accordion>
+
+  <Accordion title="Routing required but missing">
+    If the index has required routing:
+    - Set `routingField` in configuration
+    - Ensure all documents have the routing field
+    - Check OpenSearch index settings
+  </Accordion>
+</AccordionGroup>
+
+## Child Documents
+
+The indexer processes child documents from the `children` field:
+
+```java
+List<Document> children = doc.getChildren();
+```
+
+**Note**: Child document support is currently limited. Full nested document support is planned for future releases.
+
+## See Also
+
+- [Indexers Overview](/api/indexers/overview)
+- [Elasticsearch Indexer](/api/indexers/elasticsearch)
+- [OpenSearch Documentation](https://opensearch.org/docs/)

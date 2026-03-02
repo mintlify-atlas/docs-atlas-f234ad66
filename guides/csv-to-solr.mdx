@@ -1,0 +1,326 @@
+---
+title: 'CSV to Solr Tutorial'
+description: 'Complete guide to indexing CSV files into Apache Solr using Lucille'
+icon: 'file-csv'
+---
+
+This tutorial walks you through a complete example of indexing CSV data into Apache Solr using Lucille's FileConnector and CSV file handler.
+
+## Overview
+
+You'll learn how to:
+- Configure a FileConnector to read CSV files
+- Set up a Solr indexer
+- Process and index CSV data into Solr
+- Run the ingestion pipeline
+
+## Prerequisites
+
+<Steps>
+  <Step title="Apache Solr Setup">
+    Install and start Apache Solr locally:
+    
+    ```bash
+    # Download and extract Solr
+    wget https://archive.apache.org/dist/lucene/solr/9.0.0/solr-9.0.0.tgz
+    tar -xzf solr-9.0.0.tgz
+    cd solr-9.0.0
+    
+    # Start Solr in cloud mode
+    bin/solr start -c
+    
+    # Create a collection
+    bin/solr create -c quickstart
+    ```
+    
+    <Note>
+    Solr should be accessible at `http://localhost:8983/solr`
+    </Note>
+  </Step>
+
+  <Step title="Project Setup">
+    Add Lucille dependencies to your `pom.xml`:
+    
+    ```xml
+    <dependencies>
+      <dependency>
+        <groupId>com.kmwllc</groupId>
+        <artifactId>lucille-core</artifactId>
+        <version>0.8.0-SNAPSHOT</version>
+      </dependency>
+    </dependencies>
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+### Sample CSV Data
+
+Create a file `conf/songs.csv` with your data:
+
+```csv
+title,artist,top genre,year released,bpm,nrgy,pop
+STARSTRUKK (feat. Katy Perry),3OH!3,dance pop,2009,140,81,70
+My First Kiss (feat. Ke$ha),3OH!3,dance pop,2010,138,89,68
+I Need A Dollar,Aloe Blacc,pop soul,2010,95,48,72
+Airplanes (feat. Hayley Williams),B.o.B,atl hip hop,2010,93,87,80
+Nothin' on You (feat. Bruno Mars),B.o.B,atl hip hop,2010,104,85,79
+```
+
+### Lucille Configuration
+
+Create `conf/simple-csv-solr-example.conf`:
+
+<CodeGroup>
+```hocon conf/simple-csv-solr-example.conf
+# CSV to Solr ingestion configuration
+
+connectors: [
+  {
+    class: "com.kmwllc.lucille.connector.FileConnector",
+    paths: ["conf/songs.csv"],
+    name: "connector1",
+    pipeline: "pipeline1"
+    fileHandlers: {
+      csv: { }
+    }
+  }
+]
+
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: []
+  }
+]
+
+indexer {
+  type: "Solr"
+}
+
+solr {
+  useCloudClient: true
+  defaultCollection: "quickstart"
+  url: ["http://localhost:8983/solr"]
+}
+```
+</CodeGroup>
+
+<Tip>
+The `fileHandlers` configuration automatically parses CSV files and creates a document for each row, with field names from the CSV header.
+</Tip>
+
+## Adding Data Transformations
+
+You can add stages to transform your data before indexing:
+
+<CodeGroup>
+```hocon With Transformations
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: [
+      {
+        name: "copyFields"
+        class: "com.kmwllc.lucille.stage.CopyFields"
+        fieldMapping: {
+          "artist": "artist_facet"
+          "top genre": "genre_facet"
+        }
+      },
+      {
+        name: "concatenate"
+        class: "com.kmwllc.lucille.stage.Concatenate"
+        dest: "display_name"
+        formatString: "{title} by {artist}"
+      },
+      {
+        name: "deleteFields"
+        class: "com.kmwllc.lucille.stage.DeleteFields"
+        fields: ["_version"]
+      }
+    ]
+  }
+]
+```
+
+```hocon Basic (No Transformations)
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: []
+  }
+]
+```
+</CodeGroup>
+
+## Running the Ingestion
+
+<Steps>
+  <Step title="Build the Project">
+    ```bash
+    mvn clean package
+    ```
+    
+    This compiles your code and copies dependencies to `target/lib/`.
+  </Step>
+
+  <Step title="Create Run Script">
+    Create `scripts/run_ingest.sh`:
+    
+    ```bash
+    #!/bin/bash
+    java -Dconfig.file=conf/simple-csv-solr-example.conf \
+         -cp 'target/lib/*' \
+         com.kmwllc.lucille.core.Runner
+    ```
+    
+    Make it executable:
+    ```bash
+    chmod +x scripts/run_ingest.sh
+    ```
+  </Step>
+
+  <Step title="Run the Ingestion">
+    ```bash
+    ./scripts/run_ingest.sh
+    ```
+    
+    You should see output like:
+    ```
+    INFO  Runner - Starting connector: connector1
+    INFO  FileConnector - Processing file: conf/songs.csv
+    INFO  Publisher - Published 100 documents
+    INFO  Indexer - Indexed 100 documents to Solr
+    ```
+  </Step>
+
+  <Step title="Verify in Solr">
+    Query your data in Solr:
+    
+    ```bash
+    curl "http://localhost:8983/solr/quickstart/select?q=*:*&rows=5"
+    ```
+    
+    Or visit the Solr UI at `http://localhost:8983/solr/#/quickstart/query`
+  </Step>
+</Steps>
+
+## Configuration Options
+
+### FileConnector Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `paths` | List&lt;String&gt; | File paths or glob patterns to process |
+| `pipeline` | String | Name of the pipeline to use |
+| `fileHandlers` | Config | Configuration for file type handlers |
+
+### CSV Handler Options
+
+```hocon
+fileHandlers: {
+  csv: {
+    delimiter: ","           # Column delimiter (default: comma)
+    quote: '"'              # Quote character (default: double quote)
+    hasHeader: true         # First row contains headers (default: true)
+    skipLines: 0            # Number of lines to skip (default: 0)
+  }
+}
+```
+
+### Solr Indexer Options
+
+```hocon
+solr {
+  useCloudClient: true              # Use SolrCloud mode
+  defaultCollection: "quickstart"   # Target collection
+  url: ["http://localhost:8983/solr"]
+  batchSize: 100                    # Documents per batch (default: 100)
+  commitWithin: 1000                # Auto-commit timeout in ms
+}
+```
+
+## Common Patterns
+
+### Processing Multiple CSV Files
+
+```hocon
+connectors: [
+  {
+    class: "com.kmwllc.lucille.connector.FileConnector",
+    paths: [
+      "data/songs/*.csv",
+      "data/albums/*.csv"
+    ],
+    name: "csvConnector",
+    pipeline: "pipeline1"
+    fileHandlers: {
+      csv: { }
+    }
+  }
+]
+```
+
+### Adding Conditional Processing
+
+```hocon
+stages: [
+  {
+    name: "processPopular"
+    class: "com.kmwllc.lucille.stage.SetField"
+    fieldName: "category"
+    value: "popular"
+    conditions: [
+      {
+        fields: ["pop"]
+        values: ["70", "80", "90"]
+        operator: "must"
+      }
+    ]
+  }
+]
+```
+
+<Warning>
+Make sure your Solr schema has fields defined for all columns in your CSV, or use Solr's schemaless mode.
+</Warning>
+
+## Next Steps
+
+- Learn about [Custom Stages](/guides/custom-stages) to add custom transformations
+- Explore [Document Generation](/guides/document-generation) for creating synthetic test data
+- See [S3 Ingestion](/guides/s3-ingestion) for processing files from cloud storage
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused to Solr">
+    Verify Solr is running:
+    ```bash
+    curl http://localhost:8983/solr/admin/ping
+    ```
+    
+    If not running, start it with:
+    ```bash
+    bin/solr start -c
+    ```
+  </Accordion>
+
+  <Accordion title="CSV parsing errors">
+    Check your CSV format:
+    - Ensure proper quoting of fields containing delimiters
+    - Verify the header row matches your data columns
+    - Check for special characters that need escaping
+  </Accordion>
+
+  <Accordion title="Field mapping issues">
+    Verify your Solr schema:
+    ```bash
+    curl http://localhost:8983/solr/quickstart/schema/fields
+    ```
+    
+    Add missing fields or enable dynamic fields in your schema.
+  </Accordion>
+</AccordionGroup>

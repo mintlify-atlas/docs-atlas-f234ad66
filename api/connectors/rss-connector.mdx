@@ -1,0 +1,546 @@
+---
+title: "RSSConnector"
+description: "Read items from RSS/Atom feeds and publish as Documents"
+---
+
+## Overview
+
+The `RSSConnector` reads items from an RSS or Atom feed and publishes a Document for each item. It supports recency filtering, incremental refresh, and configurable ID generation.
+
+**Class**: `com.kmwllc.lucille.connector.RSSConnector`  
+**Extends**: `AbstractConnector`
+
+## Key Features
+
+- Read RSS 2.0 and Atom feeds
+- Filter by publication date recency
+- Incremental refresh with configurable intervals
+- Use GUID or generate UUID for Document IDs
+- Extract all standard RSS item fields
+- Handle enclosures (media attachments)
+- Prevent duplicate processing in refresh mode
+
+## Class Signature
+
+```java
+package com.kmwllc.lucille.connector;
+
+public class RSSConnector extends AbstractConnector {
+  public RSSConnector(Config config);
+  
+  @Override
+  public void execute(Publisher publisher) throws ConnectorException;
+}
+```
+
+## Configuration Parameters
+
+### Required Parameters
+
+<ParamField path="rssURL" type="String" required>
+  URL of the RSS or Atom feed to read.
+  
+  Supports both HTTP and HTTPS.
+  
+  **Example**: `"https://example.com/feed.xml"`, `"http://news.site.com/rss"`
+</ParamField>
+
+### Optional Parameters
+
+<ParamField path="useGuidForDocID" type="Boolean" default="true">
+  Whether to use the RSS item's GUID as the Document ID.
+  
+  - `true`: Use the `<guid>` element value as Document ID (falls back to UUID if missing)
+  - `false`: Generate a new UUID for each item
+  
+  **Recommendation**: Set to `true` for stable IDs across runs.
+  
+  <Warning>
+  If `false`, the same item will create different Documents on each run, potentially causing duplicates.
+  </Warning>
+</ParamField>
+
+<ParamField path="pubDateCutoff" type="String">
+  Duration string to include only items with a recent publication date.
+  
+  Uses HOCON duration format (e.g., `"1h"`, `"2d"`, `"30m"`).
+  
+  Only items published within this duration before the current time are included.
+  
+  **Examples**:
+  - `"1h"`: Only items from the last hour
+  - `"24h"` or `"1d"`: Only items from the last day
+  - `"7d"`: Only items from the last week
+  
+  <Note>
+  If an item has no `pubDate`, it is included regardless of this setting.
+  </Note>
+</ParamField>
+
+<ParamField path="runDuration" type="String">
+  Total duration to run when using incremental refresh. Must be used with `refreshIncrement`.
+  
+  Uses HOCON duration format.
+  
+  **Example**: `"1h"` (run for 1 hour), `"30m"` (run for 30 minutes)
+</ParamField>
+
+<ParamField path="refreshIncrement" type="String">
+  Interval between feed refreshes in incremental mode. Must be used with `runDuration`.
+  
+  Uses HOCON duration format.
+  
+  **Example**: `"5m"` (refresh every 5 minutes), `"30s"` (refresh every 30 seconds)
+  
+  <Warning>
+  Both `runDuration` and `refreshIncrement` must be defined together. Defining only one will cause an error.
+  </Warning>
+</ParamField>
+
+## Document Fields
+
+Each published Document includes these fields extracted from RSS items:
+
+<ResponseField name="author" type="String">
+  Author of the item (from `<author>` or `<dc:creator>`).
+</ResponseField>
+
+<ResponseField name="categories" type="List<String>">
+  List of categories (from `<category>` elements).
+</ResponseField>
+
+<ResponseField name="comments" type="String">
+  URL to comments page (from `<comments>`).
+</ResponseField>
+
+<ResponseField name="content" type="String">
+  Full content of the item (from `<content:encoded>` or `<content>`).
+</ResponseField>
+
+<ResponseField name="description" type="String">
+  Description or summary (from `<description>` or `<summary>`).
+</ResponseField>
+
+<ResponseField name="enclosures" type="List<ObjectNode>">
+  List of enclosures (media attachments). Each enclosure is a JSON object with:
+  - `type` (String): MIME type
+  - `url` (String): URL to the media
+  - `length` (Long, optional): Size in bytes
+  
+  **Example**:
+  ```json
+  [
+    {
+      "type": "audio/mpeg",
+      "url": "https://example.com/podcast.mp3",
+      "length": 12345678
+    }
+  ]
+  ```
+</ResponseField>
+
+<ResponseField name="guid" type="String">
+  Globally unique identifier (from `<guid>` or `<id>`).
+</ResponseField>
+
+<ResponseField name="isPermaLink" type="Boolean">
+  Whether the GUID is a permalink (from `<guid isPermaLink="...">`).
+</ResponseField>
+
+<ResponseField name="link" type="String">
+  URL to the item (from `<link>`).
+</ResponseField>
+
+<ResponseField name="title" type="String">
+  Title of the item (from `<title>`).
+</ResponseField>
+
+<ResponseField name="pubDate" type="Instant">
+  Publication date and time (from `<pubDate>` or `<published>`).
+</ResponseField>
+
+<Note>
+Fields are only added if present in the RSS item. Missing fields are omitted from the Document.
+</Note>
+
+## Configuration Examples
+
+### Basic RSS Feed
+
+```json
+connector: {
+  name: "news-feed"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "content-pipeline"
+  
+  rssURL: "https://news.example.com/rss"
+  useGuidForDocID: true
+}
+```
+
+### Recent Items Only
+
+```json
+connector: {
+  name: "recent-news"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "news-pipeline"
+  
+  rssURL: "https://feeds.example.com/breaking-news"
+  pubDateCutoff: "24h"  # Only items from last 24 hours
+  useGuidForDocID: true
+}
+```
+
+### Incremental Refresh
+
+```json
+connector: {
+  name: "live-feed"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "live-pipeline"
+  
+  rssURL: "https://api.example.com/feed.xml"
+  
+  # Run for 1 hour, checking every 5 minutes
+  runDuration: "1h"
+  refreshIncrement: "5m"
+  
+  # Only recent items
+  pubDateCutoff: "30m"
+  useGuidForDocID: true
+}
+```
+
+### Podcast Feed
+
+```json
+connector: {
+  name: "podcast-feed"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "podcast-pipeline"
+  
+  rssURL: "https://podcasts.example.com/show/feed.xml"
+  useGuidForDocID: true
+  
+  # Process last week's episodes
+  pubDateCutoff: "7d"
+  docIdPrefix: "podcast-"
+}
+```
+
+### UUID-Based IDs
+
+```json
+connector: {
+  name: "atom-feed"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "atom-pipeline"
+  
+  rssURL: "https://blog.example.com/atom.xml"
+  useGuidForDocID: false  # Generate new UUID for each item
+}
+```
+
+## Feed Reading Behavior
+
+### Single Read Mode (Default)
+
+When `runDuration` and `refreshIncrement` are not configured:
+
+1. Fetch the feed once
+2. Filter items by `pubDateCutoff` (if configured)
+3. Publish each item as a Document
+4. Complete
+
+### Incremental Refresh Mode
+
+When `runDuration` and `refreshIncrement` are configured:
+
+1. Fetch the feed
+2. Filter items by `pubDateCutoff` (if configured)
+3. Publish new items (not seen in previous refresh)
+4. Wait for `refreshIncrement` duration
+5. Repeat from step 1 until `runDuration` elapsed
+
+**Duplicate prevention**: The connector tracks items seen in the previous refresh and skips them in subsequent refreshes.
+
+<Note>
+The `pubDateCutoff` is recalculated on each refresh, so an item that was too old in one refresh may be processed in the next if its relative age changes.
+</Note>
+
+## Publication Date Filtering
+
+The `pubDateCutoff` parameter filters items by comparing their publication date to the current time:
+
+```
+include item if: pubDate >= (now - pubDateCutoff)
+```
+
+### Examples
+
+**pubDateCutoff = "1h"**, current time = 2024-01-15 10:00:00
+
+- Item A published at 09:30:00 → **Included** (30 minutes ago)
+- Item B published at 08:45:00 → **Excluded** (75 minutes ago)
+- Item C with no pubDate → **Included** (always included)
+
+**pubDateCutoff = "7d"**, current time = 2024-01-15
+
+- Item A published on 2024-01-10 → **Included** (5 days ago)
+- Item B published on 2024-01-01 → **Excluded** (14 days ago)
+
+### Missing Publication Dates
+
+If an RSS item has no `pubDate` or `published` element:
+
+- The item is **always included** regardless of `pubDateCutoff`
+- A warning is logged if `pubDateCutoff` is configured
+
+## Document ID Generation
+
+The connector determines Document IDs based on `useGuidForDocID`:
+
+### useGuidForDocID = true (Default)
+
+1. If item has a `<guid>` or `<id>`, use it as the Document ID
+2. If item has no GUID, generate a UUID and log a warning
+3. Apply `docIdPrefix` if configured
+
+**Example**: GUID `"article-123"` with `docIdPrefix: "rss-"` → Document ID `"rss-article-123"`
+
+### useGuidForDocID = false
+
+1. Generate a new UUID for each item
+2. Apply `docIdPrefix` if configured
+
+**Example**: Generated UUID `"f47ac10b-58cc-4372-a567-0e02b2c3d479"` with `docIdPrefix: "rss-"` → Document ID `"rss-f47ac10b-58cc-4372-a567-0e02b2c3d479"`
+
+<Warning>
+When `useGuidForDocID` is false, the same RSS item creates different Documents on each connector run, potentially causing duplicates in your index.
+</Warning>
+
+## Enclosure Handling
+
+RSS enclosures (typically used for podcasts and media) are converted to JSON objects:
+
+**RSS**:
+```xml
+<enclosure url="https://example.com/audio.mp3" type="audio/mpeg" length="12345678" />
+```
+
+**Document field**:
+```json
+{
+  "enclosures": [
+    {
+      "url": "https://example.com/audio.mp3",
+      "type": "audio/mpeg",
+      "length": 12345678
+    }
+  ]
+}
+```
+
+Multiple enclosures create a multi-valued `enclosures` field:
+
+```json
+{
+  "enclosures": [
+    {"url": "...", "type": "audio/mpeg", "length": 12345678},
+    {"url": "...", "type": "image/jpeg", "length": 567890}
+  ]
+}
+```
+
+## Incremental Refresh Details
+
+### Tracking Seen Items
+
+In incremental mode, the connector maintains a set of items from the previous refresh:
+
+1. **Refresh 1**: Process items A, B, C → Store in memory
+2. **Wait**: Sleep for `refreshIncrement`
+3. **Refresh 2**: Fetch feed, items B, C, D → Skip B and C (seen before), process D → Store B, C, D
+4. **Wait**: Sleep for `refreshIncrement`
+5. **Refresh 3**: Continue...
+
+### Item Comparison
+
+Items are compared using the RSS library's `Item.equals()` method, which typically compares:
+
+- GUID
+- Title
+- Link
+- Publication date
+
+<Note>
+The set of seen items is reset on each refresh to prevent unbounded memory growth. Only items from the immediately previous refresh are tracked.
+</Note>
+
+### Graceful Interruption
+
+The connector can be interrupted during the wait period:
+
+```java
+Thread.interrupt(); // Connector stops waiting and exits cleanly
+```
+
+## Performance Considerations
+
+### Feed Fetch Frequency
+
+In incremental mode, choose `refreshIncrement` based on:
+
+- Feed update frequency
+- Network latency
+- Processing time per item
+- Politeness to the feed provider
+
+**Recommendation**: Refresh no more frequently than the feed is updated (check feed's `<ttl>` element if present).
+
+### Memory Usage
+
+In incremental mode, the connector stores items from the previous refresh in memory:
+
+```
+memory per refresh ≈ (number of items in feed) × (average item size)
+```
+
+Typical RSS feeds have 10-100 items, so memory usage is usually minimal.
+
+### Network Errors
+
+The connector does not retry failed feed fetches. If a fetch fails:
+
+- In single read mode, the connector throws `ConnectorException`
+- In incremental mode, the error is thrown and the connector stops
+
+## Error Handling
+
+### Malformed Feed URL
+
+If `rssURL` is not a valid URL, an `IllegalArgumentException` is thrown during connector construction.
+
+### Feed Fetch Errors
+
+If fetching the feed fails (network error, 404, etc.), a `ConnectorException` is thrown:
+
+```
+Error occurred connecting to the RSS feed: [details]
+```
+
+### Invalid runDuration/refreshIncrement
+
+If only one of `runDuration` or `refreshIncrement` is configured, an `IllegalArgumentException` is thrown:
+
+```
+runDuration and refreshIncrement must both be defined to run incrementally.
+```
+
+## Lifecycle Methods
+
+### execute(Publisher publisher)
+
+**Single Read Mode**:
+
+1. Fetch RSS feed
+2. For each item:
+   - Check `pubDateCutoff` (skip if too old)
+   - Create Document
+   - Publish Document
+3. Complete
+
+**Incremental Refresh Mode**:
+
+1. Record start time
+2. Loop:
+   - Recalculate `pubDateCutoff` (if configured)
+   - Fetch RSS feed
+   - For each item:
+     - Check `pubDateCutoff` (skip if too old)
+     - Check if seen in previous refresh (skip if yes)
+     - Create Document
+     - Publish Document
+   - Store items for next iteration
+   - Check if `runDuration` exceeded → exit if yes
+   - Sleep for `refreshIncrement`
+   - Repeat
+
+## Use Cases
+
+### News Aggregation
+
+```json
+connector: {
+  name: "news-aggregator"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "news-processing"
+  rssURL: "https://news.example.com/feed"
+  pubDateCutoff: "24h"
+  useGuidForDocID: true
+}
+```
+
+### Podcast Indexing
+
+```json
+connector: {
+  name: "podcast-indexer"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "podcast-pipeline"
+  rssURL: "https://podcasts.example.com/feed.xml"
+  useGuidForDocID: true
+  # No pubDateCutoff - index all episodes
+}
+```
+
+### Real-Time Monitoring
+
+```json
+connector: {
+  name: "real-time-feed"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "monitoring-pipeline"
+  rssURL: "https://alerts.example.com/feed"
+  runDuration: "24h"
+  refreshIncrement: "1m"
+  pubDateCutoff: "5m"
+  useGuidForDocID: true
+}
+```
+
+### Blog Content Sync
+
+```json
+connector: {
+  name: "blog-sync"
+  class: "com.kmwllc.lucille.connector.RSSConnector"
+  pipeline: "content-pipeline"
+  rssURL: "https://blog.example.com/atom.xml"
+  pubDateCutoff: "7d"
+  useGuidForDocID: true
+  docIdPrefix: "blog-"
+}
+```
+
+## Limitations
+
+- Only supports RSS 2.0 and Atom feeds (RSS 1.0 may work but is not explicitly supported)
+- No authentication support (feeds must be publicly accessible)
+- No support for feed autodiscovery
+- Does not follow redirects automatically (ensure `rssURL` is the final URL)
+- Cannot process multiple feeds in a single connector (create separate connectors)
+- Item comparison in incremental mode depends on the RSS library's `equals()` implementation
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="FileConnector" icon="folder" href="/api/connectors/file-connector">
+    Traverse local and cloud storage
+  </Card>
+  
+  <Card title="Connectors Overview" icon="plug" href="/api/connectors/overview">
+    Learn about the Connector lifecycle
+  </Card>
+</CardGroup>

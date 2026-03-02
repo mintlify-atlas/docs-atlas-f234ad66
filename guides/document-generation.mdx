@@ -1,0 +1,630 @@
+---
+title: 'Document Generation'
+description: 'Generate synthetic test data with randomized fields for testing and development'
+icon: 'sparkles'
+---
+
+This guide shows how to generate synthetic documents with realistic randomized data for testing your Lucille pipelines and search indices.
+
+## Overview
+
+The document generation example demonstrates:
+- Creating synthetic documents with SequenceConnector
+- Generating random data (text, numbers, dates, booleans)
+- Building nested JSON structures
+- Testing pipelines without real data
+- Load testing search systems
+
+<Note>
+Perfect for development, testing, and demonstration environments where you need realistic data at scale.
+</Note>
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Pipeline Testing" icon="flask">
+    Test your stage configurations with controlled data before processing real documents.
+  </Card>
+  
+  <Card title="Load Testing" icon="gauge-high">
+    Generate millions of documents to test indexer performance and capacity.
+  </Card>
+  
+  <Card title="Development" icon="code">
+    Work offline without access to production data sources.
+  </Card>
+  
+  <Card title="Demos" icon="presentation-screen">
+    Create realistic datasets for demonstrations and training.
+  </Card>
+</CardGroup>
+
+## Configuration
+
+### Complete Example
+
+<CodeGroup>
+```hocon conf/test-documents.conf
+# Document generation example
+
+connectors: [
+  {
+    # Generates N empty docs with only an ID
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    name: "connector1"
+    pipeline: "pipeline1"
+    numDocs: 100
+    numDocs: ${?NUM_DOCS}
+  }
+]
+
+pipelines: [
+  {
+    name: "pipeline1"
+    stages: [
+      # Random text field
+      {
+        name: "test_text"
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        fieldName: "text_example"
+        inputDataPath: "resources/example-dictionary.txt"
+        minNumOfTerms: 10
+        maxNumOfTerms: 200
+        concatenate: true   # Join terms into single string
+      },
+      
+      # Random numbers
+      {
+        name: "test_integer"
+        class: "com.kmwllc.lucille.stage.AddRandomInt"
+        fieldName: "integer_example"
+        rangeStart: 0
+        rangeEnd: 100000
+      },
+      {
+        name: "test_double"
+        class: "com.kmwllc.lucille.stage.AddRandomDouble"
+        fieldName: "double_example"
+        rangeStart: 10.3
+        rangeEnd: 534.8
+      },
+      
+      # Random boolean
+      {
+        name: "test_boolean"
+        class: "com.kmwllc.lucille.stage.AddRandomBoolean"
+        fieldName: "boolean_example"
+        percentTrue: 60   # 60% true, 40% false
+      },
+      
+      # Random date
+      {
+        name: "test_date"
+        class: "com.kmwllc.lucille.stage.AddRandomDate"
+        fieldName: "date_example"
+        rangeStartDate: "2015-07-31"
+        rangeEndDate: "2025-07-31"
+      },
+      
+      # Random nested structure
+      {
+        name: "test_nested"
+        class: "com.kmwllc.lucille.stage.AddRandomNestedField"
+        targetField: "nested_example"
+        minNumObjects: 1
+        maxNumObjects: 20
+        
+        entries: {
+          "field_a" = "stringGen"
+          "field_b" = "stringGen"
+          "field_c" = "stringGen"
+        }
+        
+        generators: {
+          stringGen = {
+            class: "com.kmwllc.lucille.stage.AddRandomString"
+            input_data_path: "resources/example-dictionary.txt"
+            minNumOfTerms: 1
+            maxNumOfTerms: 5
+            concatenate: true
+          }
+        }
+      }
+    ]
+  }
+]
+
+indexer {
+  type: "Elasticsearch"
+  batchSize: 1000
+  batchTimeout: 1000
+  logRate: 1000
+  sendEnabled: true
+  sendEnabled: ${?ES_SEND_ENABLED}
+}
+
+elasticsearch {
+  url: "http://localhost:9200"
+  url: ${?ES_URL}
+  index: "test_docs"
+  index: ${?ES_INDEX}
+  acceptInvalidCert: true
+}
+```
+</CodeGroup>
+
+## Generator Stages
+
+### AddRandomString
+
+Generate random text from a dictionary file:
+
+```hocon
+{
+  name: "randomText"
+  class: "com.kmwllc.lucille.stage.AddRandomString"
+  fieldName: "description"
+  inputDataPath: "resources/dictionary.txt"
+  minNumOfTerms: 5
+  maxNumOfTerms: 50
+  concatenate: true  # Join with spaces
+}
+```
+
+**Parameters**:
+- `inputDataPath`: Text file with one term per line
+- `minNumOfTerms`: Minimum terms to select
+- `maxNumOfTerms`: Maximum terms to select
+- `concatenate`: Join terms into single string (default: false)
+- `rangeSize`: Use only first N terms from file
+
+<Tip>
+Create a custom dictionary file with domain-specific terms for more realistic test data.
+</Tip>
+
+### AddRandomInt
+
+Generate random integers:
+
+```hocon
+{
+  name: "randomInt"
+  class: "com.kmwllc.lucille.stage.AddRandomInt"
+  fieldName: "quantity"
+  rangeStart: 1
+  rangeEnd: 1000
+}
+```
+
+### AddRandomDouble
+
+Generate random decimal numbers:
+
+```hocon
+{
+  name: "randomDouble"
+  class: "com.kmwllc.lucille.stage.AddRandomDouble"
+  fieldName: "price"
+  rangeStart: 9.99
+  rangeEnd: 999.99
+}
+```
+
+### AddRandomBoolean
+
+Generate random boolean values:
+
+```hocon
+{
+  name: "randomBoolean"
+  class: "com.kmwllc.lucille.stage.AddRandomBoolean"
+  fieldName: "in_stock"
+  percentTrue: 75  # 75% true, 25% false
+}
+```
+
+### AddRandomDate
+
+Generate random dates in a range:
+
+```hocon
+{
+  name: "randomDate"
+  class: "com.kmwllc.lucille.stage.AddRandomDate"
+  fieldName: "created_date"
+  rangeStartDate: "2020-01-01"  # yyyy-MM-dd
+  rangeEndDate: "2024-12-31"
+}
+```
+
+Output format: ISO 8601 (e.g., `2023-06-15T10:30:45.123Z`)
+
+### AddRandomNestedField
+
+Generate random nested JSON structures:
+
+```hocon
+{
+  name: "randomNested"
+  class: "com.kmwllc.lucille.stage.AddRandomNestedField"
+  targetField: "attributes"
+  minNumObjects: 1
+  maxNumObjects: 10
+  
+  # Map destination path to source or generator
+  entries: {
+    "name" = "stringGen"
+    "value" = "numberGen"
+  }
+  
+  # Generators for missing fields
+  generators: {
+    stringGen = {
+      class: "com.kmwllc.lucille.stage.AddRandomString"
+      input_data_path: "resources/attributes.txt"
+      minNumOfTerms: 1
+      maxNumOfTerms: 3
+      concatenate: true
+    }
+    numberGen = {
+      class: "com.kmwllc.lucille.stage.AddRandomInt"
+      rangeStart: 1
+      rangeEnd: 100
+    }
+  }
+}
+```
+
+Output:
+```json
+{
+  "attributes": [
+    {"name": "color", "value": 42},
+    {"name": "size large", "value": 87},
+    {"name": "weight", "value": 15}
+  ]
+}
+```
+
+## Example Output Document
+
+Generated document structure:
+
+```json
+{
+  "id": "2",
+  "run_id": "4a274429-50c2-45f7-b2a7-a947bad8dd1a",
+  "text_example": "exitance south-easterly subopaque psychopannychism moustached",
+  "integer_example": 75947,
+  "double_example": 342.04429969638477,
+  "boolean_example": true,
+  "date_example": "2021-01-30T18:34:43.983Z",
+  "nested_example": [
+    {
+      "field_c": "pseudomucin Corum",
+      "field_a": "fivebar acceptance's",
+      "field_b": "microfibril"
+    },
+    {
+      "field_c": "Tallbott",
+      "field_a": "Campanulaceae clumsinesses",
+      "field_b": "uncluttering Hartleyan"
+    }
+  ]
+}
+```
+
+## Running Document Generation
+
+<Steps>
+  <Step title="Choose Indexing Mode">
+    <Tabs>
+      <Tab title="With Indexer">
+        Index generated docs to Elasticsearch:
+        ```bash
+        export ES_URL="http://localhost:9200"
+        export ES_INDEX="test_docs"
+        export ES_SEND_ENABLED=true
+        export NUM_DOCS=1000
+        ```
+      </Tab>
+      
+      <Tab title="Dry Run">
+        Generate without indexing:
+        ```bash
+        export ES_SEND_ENABLED=false
+        export NUM_DOCS=100
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Create Dictionary File">
+    Create `resources/example-dictionary.txt`:
+    ```txt
+    technology
+    innovation
+    software
+    development
+    engineering
+    architecture
+    performance
+    scalability
+    ...
+    ```
+  </Step>
+
+  <Step title="Build and Run">
+    ```bash
+    mvn clean package
+    ./scripts/run_ingest.sh
+    ```
+    
+    Monitor progress:
+    ```
+    INFO  SequenceConnector - Generating 1000 documents
+    INFO  Publisher - Published 1000 documents
+    INFO  Indexer - Indexed 1000 documents
+    INFO  Runner - Completed in 5 seconds
+    ```
+  </Step>
+</Steps>
+
+## Advanced Patterns
+
+### Product Catalog
+
+Generate realistic e-commerce data:
+
+```hocon
+stages: [
+  {
+    name: "productName"
+    class: "com.kmwllc.lucille.stage.AddRandomString"
+    fieldName: "name"
+    inputDataPath: "resources/products.txt"
+    minNumOfTerms: 2
+    maxNumOfTerms: 5
+    concatenate: true
+  },
+  {
+    name: "price"
+    class: "com.kmwllc.lucille.stage.AddRandomDouble"
+    fieldName: "price"
+    rangeStart: 9.99
+    rangeEnd: 999.99
+  },
+  {
+    name: "inStock"
+    class: "com.kmwllc.lucille.stage.AddRandomBoolean"
+    fieldName: "in_stock"
+    percentTrue: 80
+  },
+  {
+    name: "category"
+    class: "com.kmwllc.lucille.stage.SetField"
+    fieldName: "category"
+    values: ["Electronics", "Clothing", "Home", "Sports"]
+    randomSelection: true
+  }
+]
+```
+
+### User Profiles
+
+Generate user data:
+
+```hocon
+stages: [
+  {
+    name: "username"
+    class: "com.kmwllc.lucille.stage.Concatenate"
+    dest: "username"
+    formatString: "user_{id}"
+  },
+  {
+    name: "age"
+    class: "com.kmwllc.lucille.stage.AddRandomInt"
+    fieldName: "age"
+    rangeStart: 18
+    rangeEnd: 80
+  },
+  {
+    name: "registrationDate"
+    class: "com.kmwllc.lucille.stage.AddRandomDate"
+    fieldName: "registered_at"
+    rangeStartDate: "2020-01-01"
+    rangeEndDate: "2024-12-31"
+  },
+  {
+    name: "preferences"
+    class: "com.kmwllc.lucille.stage.AddRandomNestedField"
+    targetField: "preferences"
+    minNumObjects: 3
+    maxNumObjects: 10
+    entries: {
+      "key" = "prefKeyGen"
+      "value" = "prefValueGen"
+    }
+    generators: {
+      prefKeyGen = {
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        input_data_path: "resources/preference-keys.txt"
+        minNumOfTerms: 1
+        maxNumOfTerms: 1
+      }
+      prefValueGen = {
+        class: "com.kmwllc.lucille.stage.AddRandomString"
+        input_data_path: "resources/preference-values.txt"
+        minNumOfTerms: 1
+        maxNumOfTerms: 1
+      }
+    }
+  }
+]
+```
+
+### Log Events
+
+Generate time-series log data:
+
+```hocon
+stages: [
+  {
+    name: "timestamp"
+    class: "com.kmwllc.lucille.stage.AddRandomDate"
+    fieldName: "timestamp"
+    rangeStartDate: "2024-01-01"
+    rangeEndDate: "2024-01-31"
+  },
+  {
+    name: "level"
+    class: "com.kmwllc.lucille.stage.SetField"
+    fieldName: "level"
+    values: ["INFO", "INFO", "INFO", "WARN", "ERROR"]  # Weighted
+    randomSelection: true
+  },
+  {
+    name: "message"
+    class: "com.kmwllc.lucille.stage.AddRandomString"
+    fieldName: "message"
+    inputDataPath: "resources/log-messages.txt"
+    minNumOfTerms: 5
+    maxNumOfTerms: 20
+    concatenate: true
+  },
+  {
+    name: "responseTime"
+    class: "com.kmwllc.lucille.stage.AddRandomInt"
+    fieldName: "response_time_ms"
+    rangeStart: 10
+    rangeEnd: 5000
+  }
+]
+```
+
+## Performance Considerations
+
+### High-Volume Generation
+
+For millions of documents:
+
+```hocon
+connectors: [
+  {
+    class: "com.kmwllc.lucille.connector.SequenceConnector"
+    numDocs: 10000000  # 10 million
+    pipeline: "pipeline1"
+  }
+]
+
+worker {
+  threads: 8  # Parallel processing
+}
+
+publisher {
+  queueCapacity: 5000
+}
+
+indexer {
+  batchSize: 5000
+  batchTimeout: 5000
+}
+```
+
+<Warning>
+Large dictionary files and complex nested structures can slow generation. Profile your pipeline to identify bottlenecks.
+</Warning>
+
+## Integration with Testing
+
+### JUnit Test Example
+
+```java
+@Test
+public void testPipelineWithSyntheticData() throws Exception {
+    Config config = ConfigFactory.parseString("""
+        connectors: [{
+            class: "com.kmwllc.lucille.connector.SequenceConnector"
+            numDocs: 100
+            pipeline: "test"
+        }]
+        pipelines: [{
+            name: "test"
+            stages: [
+                {
+                    class: "com.kmwllc.lucille.stage.AddRandomString"
+                    fieldName: "text"
+                    rangeSize: 100
+                    minNumOfTerms: 10
+                    maxNumOfTerms: 50
+                    concatenate: true
+                },
+                {
+                    class: "com.kmwllc.lucille.stage.YourCustomStage"
+                    // ... your stage config
+                }
+            ]
+        }]
+        indexer { type: "Mock" }
+    """);
+    
+    Runner runner = new Runner(config);
+    runner.run();
+    
+    // Assert your expectations
+    assertEquals(100, mockIndexer.getIndexedCount());
+}
+```
+
+## Next Steps
+
+- Use generated data to test [Custom Stages](/guides/custom-stages)
+- Combine with [S3 Ingestion](/guides/s3-ingestion) for hybrid testing
+- Generate embeddings for [Vector Search](/guides/vector-search) testing
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Slow generation">
+    Reduce complexity:
+    - Use smaller dictionary files
+    - Reduce nested object counts
+    - Simplify generator configurations
+    
+    Or increase parallelism:
+    ```hocon
+    worker {
+      threads: 8
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Memory issues">
+    Reduce queue capacity:
+    ```hocon
+    publisher {
+      queueCapacity: 100
+    }
+    ```
+    
+    Or process in smaller batches:
+    ```bash
+    export NUM_DOCS=1000
+    ./scripts/run_ingest.sh
+    # Run multiple times
+    ```
+  </Accordion>
+
+  <Accordion title="Dictionary file not found">
+    Ensure your dictionary file is in the correct location:
+    ```bash
+    ls -la resources/example-dictionary.txt
+    ```
+    
+    Use absolute paths if needed:
+    ```hocon
+    inputDataPath: "/absolute/path/to/dictionary.txt"
+    ```
+  </Accordion>
+</AccordionGroup>

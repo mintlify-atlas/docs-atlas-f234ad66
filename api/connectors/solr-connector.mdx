@@ -1,0 +1,537 @@
+---
+title: "SolrConnector"
+description: "Query Solr collections and execute update requests"
+---
+
+## Overview
+
+The `SolrConnector` issues requests to Apache Solr and optionally publishes query results as Documents. It supports pre/post actions for index management, query execution with cursor-based pagination, and flexible request formatting (JSON or XML).
+
+**Class**: `com.kmwllc.lucille.connector.SolrConnector`  
+**Extends**: `AbstractConnector`
+
+## Key Features
+
+- Execute Solr queries and publish results as Documents
+- Pre and post actions for index management (commits, deletes, etc.)
+- Cursor-based pagination for efficient large result set handling
+- JSON or XML request formatting
+- RunId wildcard substitution in actions
+- Configurable query parameters
+- Custom field mapping and ID handling
+
+## Class Signature
+
+```java
+package com.kmwllc.lucille.connector;
+
+public class SolrConnector extends AbstractConnector {
+  public SolrConnector(Config config);
+  public SolrConnector(Config config, SolrClient client);
+  
+  @Override
+  public void preExecute(String runId) throws ConnectorException;
+  
+  @Override
+  public void execute(Publisher publisher) throws ConnectorException;
+  
+  @Override
+  public void postExecute(String runId) throws ConnectorException;
+  
+  @Override
+  public void close() throws ConnectorException;
+  
+  public List<String> getLastExecutedPreActions();
+  public List<String> getLastExecutedPostActions();
+}
+```
+
+## Configuration Parameters
+
+### Required Parameters
+
+<ParamField path="solr" type="Map" required>
+  Solr connection parameters. See `SolrUtils.SOLR_PARENT_SPEC` for details.
+  
+  **Common parameters**:
+  - `url`: Solr base URL (e.g., `"http://localhost:8983/solr/collection1"`)
+  - `type`: Client type (`"http"` or `"cloud"`)
+  - `zkHost`: Zookeeper host (for cloud mode)
+  
+  **Example**:
+  ```json
+  solr: {
+    url: "http://localhost:8983/solr/documents"
+    type: "http"
+  }
+  ```
+</ParamField>
+
+### Optional Parameters
+
+<ParamField path="preActions" type="List<String>">
+  List of Solr requests to issue before execution. Executed in `preExecute()`.
+  
+  Supports the `{runId}` wildcard, which is replaced with the current run ID.
+  
+  **Use cases**: Deletes, commits, index preparation
+  
+  **Example**:
+  ```json
+  preActions: [
+    "{\"delete\":{\"query\":\"run_id:{runId}\"}}",
+    "{\"commit\":{}}"
+  ]
+  ```
+</ParamField>
+
+<ParamField path="postActions" type="List<String>">
+  List of Solr requests to issue after execution. Executed in `postExecute()`.
+  
+  Supports the `{runId}` wildcard.
+  
+  **Use cases**: Commits, optimize, cleanup
+  
+  **Example**:
+  ```json
+  postActions: [
+    "{\"commit\":{}}",
+    "{\"optimize\":{}}"
+  ]
+  ```
+</ParamField>
+
+<ParamField path="solrParams" type="Map<String, Object>">
+  Query parameters to use when a pipeline is configured. Only used if `pipeline` is set.
+  
+  Supports Solr query parameters like `q`, `fq`, `fl`, `rows`, etc.
+  
+  **Example**:
+  ```json
+  solrParams: {
+    q: "*:*"
+    fq: ["status:published", "date:[NOW-1DAY TO NOW]"]
+    fl: "id,title,content,author"
+    rows: 1000
+  }
+  ```
+  
+  <Note>
+  The `sort` and `cursorMark` parameters are automatically set for cursor-based pagination.
+  </Note>
+</ParamField>
+
+<ParamField path="useXml" type="Boolean" default="false">
+  Send XML requests instead of JSON for actions.
+  
+  **Recommendation**: Use JSON requests. Solr performs more validation on JSON commands than XML.
+</ParamField>
+
+<ParamField path="idField" type="String" default="id">
+  Solr field to use as the Document ID when publishing. Only used if `pipeline` is set.
+  
+  **Example**: `"documentId"`, `"uuid"`
+</ParamField>
+
+## Query Mode vs. Action-Only Mode
+
+The connector operates in two modes:
+
+### Action-Only Mode (No Pipeline)
+
+When `pipeline` is **not** configured:
+
+- Only `preActions` and `postActions` are executed
+- No query is issued
+- No documents are published
+- Use for index management tasks
+
+**Example**: Commit and optimize an index
+
+```json
+connector: {
+  name: "solr-commit"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  # No pipeline
+  
+  solr: {
+    url: "http://localhost:8983/solr/myindex"
+  }
+  
+  postActions: [
+    "{\"commit\":{}}",
+    "{\"optimize\":{\"maxSegments\":1}}"
+  ]
+}
+```
+
+### Query Mode (With Pipeline)
+
+When `pipeline` **is** configured:
+
+- Execute `preActions` (if configured)
+- Query Solr using `solrParams`
+- Publish each result as a Document
+- Execute `postActions` (if configured)
+
+**Example**: Query and reindex documents
+
+```json
+connector: {
+  name: "solr-reindex"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  pipeline: "reindex-pipeline"
+  
+  solr: {
+    url: "http://localhost:8983/solr/source"
+  }
+  
+  solrParams: {
+    q: "status:active"
+    fq: "created:[NOW-30DAYS TO NOW]"
+    fl: "*"
+    rows: 5000
+  }
+  
+  idField: "doc_id"
+}
+```
+
+## Configuration Examples
+
+### Basic Query and Publish
+
+```json
+connector: {
+  name: "solr-query"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  pipeline: "process-pipeline"
+  
+  solr: {
+    url: "http://localhost:8983/solr/documents"
+    type: "http"
+  }
+  
+  solrParams: {
+    q: "*:*"
+    fq: "published:true"
+    fl: "id,title,body,author,date"
+    rows: 1000
+  }
+  
+  idField: "id"
+}
+```
+
+### Delete by Query with RunId
+
+```json
+connector: {
+  name: "solr-delete-old"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  # No pipeline - action only
+  
+  solr: {
+    url: "http://localhost:8983/solr/documents"
+  }
+  
+  preActions: [
+    "{\"delete\":{\"query\":\"run_id:{runId}\"}}"
+  ]
+  
+  postActions: [
+    "{\"commit\":{}}"
+  ]
+}
+```
+
+### SolrCloud with Complex Query
+
+```json
+connector: {
+  name: "solrcloud-query"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  pipeline: "enrichment-pipeline"
+  
+  solr: {
+    type: "cloud"
+    zkHost: "zk1:2181,zk2:2181,zk3:2181"
+    collection: "documents"
+  }
+  
+  solrParams: {
+    q: "category:technology"
+    fq: [
+      "lang:en",
+      "quality:[5 TO *]",
+      "date:[NOW-7DAYS TO NOW]"
+    ]
+    fl: "id,title,content,category,quality,date,tags"
+    rows: 10000
+  }
+  
+  idField: "id"
+  docIdPrefix: "solr-"
+}
+```
+
+### Reindex with Pre/Post Actions
+
+```json
+connector: {
+  name: "solr-reindex"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  pipeline: "transform-pipeline"
+  
+  solr: {
+    url: "http://solr.example.com:8983/solr/source_index"
+  }
+  
+  preActions: [
+    # Mark documents for this run
+    "{\"add\":{\"doc\":{\"id\":\"run_marker_{runId}\",\"type\":\"run_marker\",\"run_id\":\"{runId}\"}}}",
+    "{\"commit\":{}}"
+  ]
+  
+  solrParams: {
+    q: "*:*"
+    fq: "-type:run_marker"
+    fl: "*"
+    rows: 5000
+  }
+  
+  postActions: [
+    # Delete the run marker
+    "{\"delete\":{\"query\":\"id:run_marker_{runId}\"}}",
+    "{\"commit\":{}}"
+  ]
+}
+```
+
+### XML Actions
+
+```json
+connector: {
+  name: "solr-xml-actions"
+  class: "com.kmwllc.lucille.connector.SolrConnector"
+  
+  solr: {
+    url: "http://localhost:8983/solr/documents"
+  }
+  
+  useXml: true
+  
+  preActions: [
+    "<delete><query>run_id:{runId}</query></delete>"
+  ]
+  
+  postActions: [
+    "<commit/>",
+    "<optimize maxSegments='1'/>"
+  ]
+}
+```
+
+## Cursor-Based Pagination
+
+When querying Solr (with a pipeline), the connector uses cursor-based pagination for efficient traversal of large result sets:
+
+1. Add `sort: idField asc` to the query
+2. Set initial `cursorMark` to `*`
+3. Execute query
+4. Process results (publish documents)
+5. If `cursorMark` changed, update and repeat from step 3
+6. If `cursorMark` unchanged, all results have been processed
+
+### Advantages
+
+- Efficient for large result sets
+- No deep pagination performance penalty
+- Consistent results even with index updates
+
+### Requirements
+
+- The `idField` must be unique and indexed
+- Results are sorted by `idField` in ascending order
+
+<Note>
+You cannot override the `sort` or `cursorMark` parameters in `solrParams`. They are automatically managed for cursor pagination.
+</Note>
+
+## Document Field Mapping
+
+For each Solr document in the query results:
+
+1. Extract the ID from the `idField` (apply `docIdPrefix`)
+2. Create a Lucille Document with that ID
+3. For each Solr field (except the ID field):
+   - Convert field name to lowercase
+   - Skip if it matches the ID field name or "id"
+   - Add field values to the Document
+4. Publish the Document
+
+**Field name handling**:
+
+- All field names are lowercased
+- The ID field is not duplicated in the Document
+- Multi-valued Solr fields become multi-valued Document fields
+
+## Action Format
+
+Actions are Solr update requests formatted as JSON or XML strings.
+
+### JSON Actions
+
+```json
+preActions: [
+  # Delete by query
+  "{\"delete\":{\"query\":\"status:archived\"}}",
+  
+  # Add a document
+  "{\"add\":{\"doc\":{\"id\":\"doc1\",\"title\":\"Test\"}}}",
+  
+  # Commit
+  "{\"commit\":{}}",
+  
+  # Optimize
+  "{\"optimize\":{\"maxSegments\":5}}"
+]
+```
+
+### XML Actions
+
+```json
+useXml: true
+preActions: [
+  # Delete by query
+  "<delete><query>status:archived</query></delete>",
+  
+  # Add a document
+  "<add><doc><field name='id'>doc1</field><field name='title'>Test</field></doc></add>",
+  
+  # Commit
+  "<commit/>",
+  
+  # Optimize
+  "<optimize maxSegments='5'/>"
+]
+```
+
+### RunId Wildcard
+
+The `{runId}` wildcard is replaced with the current run ID in `preExecute()` and `postExecute()`:
+
+```json
+preActions: [
+  # Before: "{\"delete\":{\"query\":\"run_id:{runId}\"}}"
+  # After:  "{\"delete\":{\"query\":\"run_id:run-2024-01-15-123456\"}}"
+]
+```
+
+Use this to:
+
+- Delete documents from previous runs
+- Tag documents with the current run ID
+- Create run-specific markers
+
+## Lifecycle Methods
+
+### preExecute(String runId)
+
+1. Replace `{runId}` wildcard in `preActions`
+2. Execute each action sequentially
+3. Log responses
+
+### execute(Publisher publisher)
+
+If `pipeline` is configured:
+
+1. Build Solr query from `solrParams`
+2. Add `sort: idField asc` and `cursorMark: *`
+3. Execute query
+4. For each result:
+   - Create Document from Solr document
+   - Publish Document
+5. If cursor changed, update and repeat from step 3
+6. If cursor unchanged, complete
+
+If `pipeline` is not configured, this method does nothing.
+
+### postExecute(String runId)
+
+1. Replace `{runId}` wildcard in `postActions`
+2. Execute each action sequentially
+3. Log responses
+
+### close()
+
+Closes the Solr client and releases resources.
+
+## Error Handling
+
+### Action Failures
+
+If an action fails, a `ConnectorException` is thrown with details:
+
+```
+Failed to perform action: {"delete":{"query":"invalid query syntax"}}
+```
+
+### Query Failures
+
+If the query fails, a `ConnectorException` is thrown:
+
+```
+Unable to query Solr: [error details]
+```
+
+### Publishing Failures
+
+If publishing a document fails, a `ConnectorException` is thrown:
+
+```
+Unable to publish document: [error details]
+```
+
+## Performance Considerations
+
+### Query Performance
+
+- Set `rows` to a reasonable batch size (default Solr limit is often 10)
+- Use filter queries (`fq`) for better caching
+- Limit fields with `fl` to reduce data transfer
+- Add appropriate indexes for query and filter fields
+
+### Cursor Pagination
+
+Cursor-based pagination is efficient for large result sets, but:
+
+- Requires sorting by a unique field
+- Cannot jump to arbitrary pages
+- May not reflect real-time index changes
+
+### Action Timing
+
+- Pre-actions execute before any documents are published
+- Post-actions execute after all documents are published
+- Use commits strategically to balance consistency and performance
+
+## Limitations
+
+- Cannot override `sort` or `cursorMark` in `solrParams`
+- Only supports single-collection queries (no join queries)
+- No built-in support for child documents from Solr
+- Actions are executed sequentially (no parallelization)
+- Field names are always lowercased
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RSSConnector" icon="rss" href="/api/connectors/rss-connector">
+    Read items from RSS/Atom feeds
+  </Card>
+  
+  <Card title="KafkaConnector" icon="stream" href="/api/connectors/kafka-connector">
+    Read messages from Kafka topics
+  </Card>
+</CardGroup>

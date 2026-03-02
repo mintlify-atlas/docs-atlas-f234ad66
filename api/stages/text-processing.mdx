@@ -1,0 +1,446 @@
+---
+title: Text Processing Stages
+description: Stages for text manipulation and transformation
+---
+
+## Overview
+
+Text processing stages manipulate string content in document fields. These stages handle common text operations like pattern matching, normalization, concatenation, and formatting.
+
+## ApplyRegex
+
+Extracts text based on regular expressions. Supports capturing groups and multiple regex flags.
+
+<ParamField path="source" type="List<String>" required>
+  List of source field names to apply regex extraction to.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination field names. Can be:
+  - Same length as source for 1-to-1 mapping
+  - Single field to collect results from all source fields
+</ParamField>
+
+<ParamField path="regex" type="String" required>
+  Regular expression to find matches. If the regex includes capturing groups, the value of the first group will be used.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+<ParamField path="ignoreCase" type="Boolean" default={false} optional>
+  Whether the regex matcher should ignore case.
+</ParamField>
+
+<ParamField path="multiline" type="Boolean" default={false} optional>
+  Whether the regex matcher should allow matches across multiple lines.
+</ParamField>
+
+<ParamField path="dotall" type="Boolean" default={false} optional>
+  Enables DOTALL functionality for the regex matcher (`.` matches newlines).
+</ParamField>
+
+<ParamField path="literal" type="Boolean" default={false} optional>
+  Treats the regex expression as a literal string rather than a pattern.
+</ParamField>
+
+### Example: Extract Email Addresses
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyRegex
+    name: extract_emails
+    source: ["content", "description"]
+    dest: ["emails"]
+    regex: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+    updateMode: append
+```
+
+### Example: Extract with Capturing Group
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyRegex
+    name: extract_phone_area_code
+    source: ["phone"]
+    dest: ["area_code"]
+    regex: "\\((\\d{3})\\)"
+    # Captures the digits inside parentheses
+```
+
+---
+
+## Concatenate
+
+Replaces wildcards in a format string with field values to create concatenated output.
+
+<ParamField path="dest" type="String" required>
+  Destination field for the concatenated result.
+</ParamField>
+
+<ParamField path="formatString" type="String" required>
+  Format string with field placeholders wrapped in `{}`. 
+  
+  Example: `"{city}, {state}, {country}"` → `"Boston, MA, USA"`
+</ParamField>
+
+<ParamField path="defaultInputs" type="Map<String, String>" optional>
+  Mapping of field names to default values. If a field is missing or empty, the default value will be used. If no default is provided, the placeholder remains in the output.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+<Note>
+  If a field is multivalued, only the first value will be used in the concatenation.
+</Note>
+
+### Example: Create Display Name
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.Concatenate
+    name: create_display_name
+    dest: display_name
+    formatString: "{first_name} {middle_initial}. {last_name}"
+    defaultInputs:
+      middle_initial: "X"
+```
+
+### Example: Format Address
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.Concatenate
+    name: format_address
+    dest: full_address
+    formatString: "{street}, {city}, {state} {zip}"
+```
+
+---
+
+## NormalizeText
+
+Normalizes text case using four different modes: lowercase, uppercase, title case, and sentence case.
+
+<ParamField path="source" type="List<String>" required>
+  List of source field names.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination field names. Can be:
+  - Same length as source for 1-to-1 mapping
+  - Single field to collect results from all source fields
+</ParamField>
+
+<ParamField path="mode" type="String" required>
+  Normalization mode:
+  - `lowercase` - Convert all text to lowercase
+  - `uppercase` - Convert all text to UPPERCASE
+  - `title_case` - Convert To Title Case (first letter of each word capitalized)
+  - `sentence_case` - Convert to sentence case (first letter of each sentence capitalized)
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+<Warning>
+  This stage will not preserve original capitalization. Proper nouns, abbreviations, and acronyms may not be correctly capitalized after normalization.
+</Warning>
+
+### Example: Normalize for Search
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.NormalizeText
+    name: lowercase_content
+    source: ["title", "description"]
+    dest: ["title_normalized", "description_normalized"]
+    mode: lowercase
+```
+
+### Example: Title Case Formatting
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.NormalizeText
+    name: format_title
+    source: ["product_name"]
+    dest: ["product_name_display"]
+    mode: title_case
+```
+
+---
+
+## TrimWhitespace
+
+Removes leading and trailing whitespace from field values.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to trim whitespace from. At least one field must be specified.
+</ParamField>
+
+### Example: Clean Input Fields
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.TrimWhitespace
+    name: clean_fields
+    fields:
+      - name
+      - email
+      - address
+      - description
+```
+
+---
+
+## ReplacePatterns
+
+Replaces text patterns using regular expressions with specified replacement strings.
+
+<ParamField path="source" type="List<String>" required>
+  List of source field names.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination field names. Must be same length as source or single field.
+</ParamField>
+
+<ParamField path="patterns" type="List<String>" required>
+  List of regex patterns to search for.
+</ParamField>
+
+<ParamField path="replacements" type="List<String>" required>
+  List of replacement strings corresponding to patterns. Must be same length as patterns.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values.
+</ParamField>
+
+### Example: Clean HTML
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ReplacePatterns
+    name: remove_html_tags
+    source: ["content"]
+    dest: ["content_clean"]
+    patterns:
+      - "<[^>]+>"  # Remove HTML tags
+      - "&nbsp;"   # Remove HTML entities
+    replacements:
+      - ""
+      - " "
+```
+
+### Example: Normalize Whitespace
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ReplacePatterns
+    name: normalize_whitespace
+    source: ["text"]
+    dest: ["text"]
+    patterns:
+      - "\\s+"  # Multiple whitespace
+    replacements:
+      - " "    # Single space
+```
+
+---
+
+## RemoveDiacritics
+
+Removes diacritical marks (accents) from text, converting characters to their base forms.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to remove diacritics from.
+</ParamField>
+
+### Example: Normalize International Text
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.RemoveDiacritics
+    name: remove_accents
+    fields: ["name", "description"]
+    # "café" → "cafe"
+    # "naïve" → "naive"
+```
+
+---
+
+## SplitFieldValues
+
+Splits field values into multiple values using a delimiter or regex pattern.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to split.
+</ParamField>
+
+<ParamField path="delimiter" type="String" optional>
+  String delimiter to split on. Either delimiter or regex must be specified.
+</ParamField>
+
+<ParamField path="regex" type="String" optional>
+  Regular expression pattern to split on. Either delimiter or regex must be specified.
+</ParamField>
+
+### Example: Split Tags
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.SplitFieldValues
+    name: split_tags
+    fields: ["tags"]
+    delimiter: ","
+    # "tag1,tag2,tag3" → ["tag1", "tag2", "tag3"]
+```
+
+### Example: Split by Whitespace
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.SplitFieldValues
+    name: tokenize_text
+    fields: ["keywords"]
+    regex: "\\s+"
+```
+
+---
+
+## TruncateField
+
+Truncates field values to a maximum length.
+
+<ParamField path="fields" type="List<String>" required>
+  List of fields to truncate.
+</ParamField>
+
+<ParamField path="maxLength" type="Integer" required>
+  Maximum length for field values. Values longer than this will be truncated.
+</ParamField>
+
+### Example: Limit Description Length
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.TruncateField
+    name: truncate_summary
+    fields: ["summary", "description"]
+    maxLength: 500
+```
+
+---
+
+## ExtractFirstCharacter
+
+Extracts the first character from field values.
+
+<ParamField path="source" type="List<String>" required>
+  List of source field names.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination field names.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values.
+</ParamField>
+
+### Example: Create Alphabetical Index
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ExtractFirstCharacter
+    name: create_alpha_index
+    source: ["last_name"]
+    dest: ["last_name_initial"]
+    # "Smith" → "S"
+```
+
+---
+
+## ApplyJSoup
+
+Parses HTML content using JSoup and extracts elements based on CSS selectors.
+
+<ParamField path="source" type="String" required>
+  Source field containing HTML content.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for extracted content.
+</ParamField>
+
+<ParamField path="selector" type="String" required>
+  CSS selector to identify elements to extract.
+</ParamField>
+
+<ParamField path="attribute" type="String" optional>
+  HTML attribute to extract. If not specified, extracts text content.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values.
+</ParamField>
+
+### Example: Extract Links
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyJSoup
+    name: extract_links
+    source: html_content
+    dest: links
+    selector: "a"
+    attribute: "href"
+```
+
+### Example: Extract Article Text
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyJSoup
+    name: extract_article
+    source: html
+    dest: article_text
+    selector: "article.main-content"
+```
+
+---
+
+## XPathExtractor
+
+Extracts data from XML using XPath expressions.
+
+<ParamField path="source" type="String" required>
+  Source field containing XML content.
+</ParamField>
+
+<ParamField path="xpathMapping" type="Map<String, String>" required>
+  Mapping of XPath expressions to destination field names.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values.
+</ParamField>
+
+### Example: Extract XML Metadata
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.XPathExtractor
+    name: extract_metadata
+    source: xml_content
+    xpathMapping:
+      "/book/title": book_title
+      "/book/author": book_author
+      "/book/isbn": isbn
+```

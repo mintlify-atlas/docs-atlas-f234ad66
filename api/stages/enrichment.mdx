@@ -1,0 +1,563 @@
+---
+title: Enrichment Stages
+description: Stages for enhancing documents with additional information
+---
+
+## Overview
+
+Enrichment stages enhance documents by adding information from external sources like dictionaries, databases, APIs, and specialized detection algorithms. These stages are crucial for adding context and metadata to your documents.
+
+## DetectLanguage
+
+Detects the language of text content using langdetect library. Supports 53 languages.
+
+<ParamField path="source" type="List<String>" required>
+  List of source fields containing text to analyze for language detection.
+</ParamField>
+
+<ParamField path="languageField" type="String" required>
+  Field to store the detected language code (e.g., "en", "es", "fr").
+</ParamField>
+
+<ParamField path="languageConfidenceField" type="String" default="languageConfidence" optional>
+  Field to store the confidence score of the language detection.
+</ParamField>
+
+<ParamField path="minLength" type="Integer" default={50} optional>
+  Minimum length of text to consider for language detection. Shorter strings are ignored.
+</ParamField>
+
+<ParamField path="maxLength" type="Integer" default={10000} optional>
+  Maximum length of text to consider. Longer strings are truncated.
+</ParamField>
+
+<ParamField path="minProbability" type="Double" default={0.95} optional>
+  Minimum confidence threshold for accepting a detection result. Results below this threshold are ignored.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing field values: `overwrite`, `append`, or `skip`.
+</ParamField>
+
+### Supported Languages
+
+Supports 53 languages including: English (en), Spanish (es), French (fr), German (de), Chinese (zh-cn, zh-tw), Japanese (ja), Korean (ko), Arabic (ar), Russian (ru), Portuguese (pt), Italian (it), Dutch (nl), and many more.
+
+### Example: Basic Language Detection
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DetectLanguage
+    name: detect_content_language
+    source: ["content", "description"]
+    languageField: language
+    languageConfidenceField: language_confidence
+    minProbability: 0.90
+```
+
+### Example: Multi-field Language Detection
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DetectLanguage
+    name: detect_language
+    source:
+      - title
+      - body
+      - abstract
+    languageField: detected_language
+    minLength: 100
+    maxLength: 5000
+```
+
+---
+
+## DictionaryLookup
+
+Finds exact matches in a dictionary file and extracts associated payloads. Can also function as a set membership test.
+
+<ParamField path="source" type="List<String>" required>
+  List of source field names to check against the dictionary.
+</ParamField>
+
+<ParamField path="dest" type="List<String>" required>
+  List of destination field names. Can be:
+  - Same length as source for 1-to-1 mapping
+  - Single field to collect results from all source fields
+</ParamField>
+
+<ParamField path="dictPath" type="String" required>
+  Path to the dictionary file. Dictionary format: one term per line, optionally with payload: `term, payload`
+  
+  - If path starts with `classpath:`, searches the classpath
+  - Otherwise, searches the local filesystem
+  - Supports S3, Azure, and GCP paths with appropriate configuration
+</ParamField>
+
+<ParamField path="usePayloads" type="Boolean" default={true} optional>
+  Whether to use payloads from the dictionary. If false, outputs the matched term instead of its payload.
+</ParamField>
+
+<ParamField path="ignoreCase" type="Boolean" default={false} optional>
+  Whether to perform case-insensitive matching.
+</ParamField>
+
+<ParamField path="setOnly" type="Boolean" default={false} optional>
+  Use as a set membership test. When true:
+  - Destination field is set to boolean true/false
+  - `updateMode` must be `overwrite`
+  - Use with `useAnyMatch` and `ignoreMissingSource` for fine control
+</ParamField>
+
+<ParamField path="useAnyMatch" type="Boolean" default={false} optional>
+  Only valid with `setOnly=true`. If true, returns true if ANY value matches. If false, returns true only if ALL values match.
+</ParamField>
+
+<ParamField path="ignoreMissingSource" type="Boolean" default={false} optional>
+  Only valid with `setOnly=true`. If true, treats missing source fields as a match.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing destination field values. Cannot be used with `setOnly=true`.
+</ParamField>
+
+### Example: Category Tagging
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DictionaryLookup
+    name: tag_categories
+    source: ["keywords"]
+    dest: ["categories"]
+    dictPath: "/data/dictionaries/category_mapping.txt"
+    usePayloads: true
+    ignoreCase: true
+```
+
+Dictionary file (`category_mapping.txt`):
+```
+machine learning, AI
+artificial intelligence, AI
+deep learning, AI
+python, Programming
+java, Programming
+```
+
+### Example: Set Membership Check
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DictionaryLookup
+    name: check_valid_status
+    source: ["status"]
+    dest: ["is_valid_status"]
+    dictPath: "/data/valid_statuses.txt"
+    setOnly: true
+    useAnyMatch: false  # All values must be in dictionary
+```
+
+### Example: S3 Dictionary
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.DictionaryLookup
+    name: lookup_from_s3
+    source: ["product_code"]
+    dest: ["product_name"]
+    dictPath: "s3://my-bucket/dictionaries/products.txt"
+    s3:
+      region: us-east-1
+      accessKey: ${AWS_ACCESS_KEY}
+      secretKey: ${AWS_SECRET_KEY}
+```
+
+---
+
+## QueryDatabase
+
+Executs SQL queries against a database to enrich documents.
+
+<ParamField path="jdbcUrl" type="String" required>
+  JDBC connection URL for the database.
+</ParamField>
+
+<ParamField path="query" type="String" required>
+  SQL query to execute. Can use `?` placeholders for parameterized queries.
+</ParamField>
+
+<ParamField path="parameters" type="List<String>" optional>
+  List of field names to use as query parameters, corresponding to `?` placeholders.
+</ParamField>
+
+<ParamField path="resultMapping" type="Map<String, String>" optional>
+  Mapping of column names from query results to document field names.
+</ParamField>
+
+<ParamField path="username" type="String" optional>
+  Database username.
+</ParamField>
+
+<ParamField path="password" type="String" optional>
+  Database password.
+</ParamField>
+
+### Example: User Lookup
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.QueryDatabase
+    name: enrich_user_data
+    jdbcUrl: "jdbc:postgresql://localhost:5432/userdb"
+    username: ${DB_USER}
+    password: ${DB_PASS}
+    query: "SELECT name, email, department FROM users WHERE user_id = ?"
+    parameters: ["user_id"]
+    resultMapping:
+      name: user_name
+      email: user_email
+      department: user_department
+```
+
+---
+
+## ElasticsearchLookup
+
+Performs lookups against an Elasticsearch index to enrich documents.
+
+<ParamField path="host" type="String" required>
+  Elasticsearch host URL.
+</ParamField>
+
+<ParamField path="index" type="String" required>
+  Index name to query.
+</ParamField>
+
+<ParamField path="queryField" type="String" required>
+  Document field to use as the query term.
+</ParamField>
+
+<ParamField path="searchField" type="String" required>
+  Elasticsearch field to search against.
+</ParamField>
+
+<ParamField path="resultMapping" type="Map<String, String>" optional>
+  Mapping of Elasticsearch fields to document fields.
+</ParamField>
+
+### Example: Product Enrichment
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ElasticsearchLookup
+    name: enrich_product_info
+    host: "http://localhost:9200"
+    index: products
+    queryField: product_id
+    searchField: id
+    resultMapping:
+      product_name: name
+      product_price: price
+      product_category: category
+```
+
+---
+
+## QueryOpensearch
+
+Performs lookups against an OpenSearch index to enrich documents.
+
+<ParamField path="endpoint" type="String" required>
+  OpenSearch endpoint URL.
+</ParamField>
+
+<ParamField path="index" type="String" required>
+  Index name to query.
+</ParamField>
+
+<ParamField path="queryField" type="String" required>
+  Document field to use for the query.
+</ParamField>
+
+<ParamField path="searchField" type="String" required>
+  OpenSearch field to match against.
+</ParamField>
+
+<ParamField path="destFields" type="Map<String, String>" optional>
+  Mapping of OpenSearch response fields to document fields.
+</ParamField>
+
+<ParamField path="region" type="String" optional>
+  AWS region (for AWS OpenSearch).
+</ParamField>
+
+### Example: Document Enrichment from OpenSearch
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.QueryOpensearch
+    name: opensearch_lookup
+    endpoint: "https://search-domain.us-east-1.es.amazonaws.com"
+    region: us-east-1
+    index: metadata
+    queryField: doc_id
+    searchField: id
+    destFields:
+      title: enriched_title
+      summary: enriched_summary
+```
+
+---
+
+## ExtractEntities
+
+Extracts named entities (person names, locations, organizations) using OpenNLP.
+
+<ParamField path="source" type="String" required>
+  Source field containing text to extract entities from.
+</ParamField>
+
+<ParamField path="personField" type="String" optional>
+  Destination field for person names.
+</ParamField>
+
+<ParamField path="locationField" type="String" optional>
+  Destination field for location names.
+</ParamField>
+
+<ParamField path="organizationField" type="String" optional>
+  Destination field for organization names.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing field values.
+</ParamField>
+
+### Example: Extract Named Entities
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ExtractEntities
+    name: extract_entities
+    source: content
+    personField: people
+    locationField: locations
+    organizationField: organizations
+```
+
+---
+
+## ExtractEntitiesFST
+
+Extracts entities using Finite State Transducer (FST) for fast dictionary-based entity recognition.
+
+<ParamField path="source" type="String" required>
+  Source field containing text.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for extracted entities.
+</ParamField>
+
+<ParamField path="dictPath" type="String" required>
+  Path to the FST dictionary file.
+</ParamField>
+
+<ParamField path="updateMode" type="String" default="overwrite" optional>
+  How to handle existing field values.
+</ParamField>
+
+### Example: Fast Entity Extraction
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ExtractEntitiesFST
+    name: extract_medical_terms
+    source: medical_notes
+    dest: medical_entities
+    dictPath: "/data/fst/medical_terms.fst"
+```
+
+---
+
+## FetchUri
+
+Fetches content from URLs specified in document fields.
+
+<ParamField path="source" type="String" required>
+  Field containing the URL to fetch.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for fetched content.
+</ParamField>
+
+<ParamField path="timeout" type="Integer" optional>
+  Request timeout in milliseconds.
+</ParamField>
+
+<ParamField path="headers" type="Map<String, String>" optional>
+  HTTP headers to include in the request.
+</ParamField>
+
+### Example: Fetch Web Content
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.FetchUri
+    name: fetch_webpage
+    source: url
+    dest: html_content
+    timeout: 30000
+    headers:
+      User-Agent: "Lucille ETL Bot 1.0"
+```
+
+---
+
+## FetchFileContent
+
+Fetches file content from local filesystem or cloud storage.
+
+<ParamField path="source" type="String" required>
+  Field containing the file path.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for file content.
+</ParamField>
+
+<ParamField path="encoding" type="String" optional>
+  Character encoding for text files.
+</ParamField>
+
+### Example: Load File Content
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.FetchFileContent
+    name: load_documents
+    source: file_path
+    dest: content
+    encoding: UTF-8
+```
+
+---
+
+## ApplyFileHandlers
+
+Applies file handlers to extract content and metadata from files (PDF, Word, images, etc.) using Apache Tika.
+
+<ParamField path="pathField" type="String" required>
+  Field containing the file path or URL.
+</ParamField>
+
+<ParamField path="contentField" type="String" default="content" optional>
+  Destination field for extracted text content.
+</ParamField>
+
+<ParamField path="metadataPrefix" type="String" optional>
+  Prefix for metadata fields extracted from the file.
+</ParamField>
+
+### Example: Extract PDF Content
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.ApplyFileHandlers
+    name: extract_file_content
+    pathField: file_path
+    contentField: extracted_text
+    metadataPrefix: file_meta_
+```
+
+---
+
+## CreateStaticTeaser
+
+Creates a teaser (snippet/summary) from text content.
+
+<ParamField path="source" type="String" required>
+  Source field containing full text.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for the teaser.
+</ParamField>
+
+<ParamField path="length" type="Integer" required>
+  Maximum length of the teaser in characters.
+</ParamField>
+
+<ParamField path="breakOnWord" type="Boolean" default={true} optional>
+  Whether to break on word boundaries to avoid cutting words in half.
+</ParamField>
+
+### Example: Generate Summary
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.CreateStaticTeaser
+    name: create_summary
+    source: content
+    dest: summary
+    length: 300
+    breakOnWord: true
+```
+
+---
+
+## MatchQuery
+
+Matches field values against a Lucene query string.
+
+<ParamField path="query" type="String" required>
+  Lucene query string to match against.
+</ParamField>
+
+<ParamField path="resultField" type="String" default="query_match" optional>
+  Field to store the boolean match result.
+</ParamField>
+
+### Example: Content Classification
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.MatchQuery
+    name: classify_technical
+    query: "content:(kubernetes OR docker OR microservices)"
+    resultField: is_technical_content
+```
+
+---
+
+## Contains
+
+Checks if field values contain specific substrings.
+
+<ParamField path="source" type="List<String>" required>
+  List of source fields to check.
+</ParamField>
+
+<ParamField path="dest" type="String" required>
+  Destination field for boolean result.
+</ParamField>
+
+<ParamField path="values" type="List<String>" required>
+  List of values to search for.
+</ParamField>
+
+<ParamField path="ignoreCase" type="Boolean" default={false} optional>
+  Whether to perform case-insensitive matching.
+</ParamField>
+
+### Example: Check for Keywords
+
+```yaml
+stages:
+  - class: com.kmwllc.lucille.stage.Contains
+    name: check_urgent
+    source: ["subject", "body"]
+    dest: is_urgent
+    values: ["urgent", "asap", "emergency"]
+    ignoreCase: true
+```

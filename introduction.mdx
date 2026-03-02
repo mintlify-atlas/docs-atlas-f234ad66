@@ -1,0 +1,183 @@
+---
+title: Introduction to Lucille
+description: A production-grade Search ETL solution for indexing data into search engines
+---
+
+# What is Lucille?
+
+Lucille is a **production-grade Search ETL solution** that helps you extract data from source systems, transform it, and load it into search engines like Apache Solr, Elasticsearch, OpenSearch, and vector databases like Pinecone and Weaviate.
+
+## Search ETL: A Specialized Category
+
+Search ETL is a category of ETL problem where data must be extracted from a source system, transformed, and loaded into a _search engine_. Unlike traditional ETL, a Search ETL solution must:
+
+- Represent data in the form of **search-engine-ready Documents**
+- Know how to **enrich** Documents to support common search use cases
+- Follow **best practices** for interacting with search engines including support for batching, routing, and versioning
+
+## Why Lucille?
+
+To be production-grade, a search ETL solution must be **scalable**, **reliable**, and **easy to use**. Lucille delivers:
+
+<CardGroup cols={2}>
+  <Card title="Scalable Architecture" icon="chart-line">
+    Parallel document processing and distributed execution for handling large data volumes
+  </Card>
+  <Card title="Observable & Reliable" icon="magnifying-glass-chart">
+    Built-in metrics, logging, and error handling to monitor your data pipelines
+  </Card>
+  <Card title="Easy Configuration" icon="file-code">
+    Simple HOCON config files define your entire ETL workflow
+  </Card>
+  <Card title="Production-Hardened" icon="shield-check">
+    Extensive test coverage and proven in challenging real-world deployments
+  </Card>
+</CardGroup>
+
+## Core Architecture
+
+Lucille follows a three-stage architecture:
+
+```mermaid
+graph LR
+    A[Connector] --> B[Pipeline]
+    B --> C[Indexer]
+    style A fill:#4CAF50
+    style B fill:#2196F3
+    style C fill:#FF9800
+```
+
+### 1. Connectors (Data Sources)
+
+Connectors extract data from source systems and generate **Documents**. Lucille includes connectors for:
+
+- **File systems**: Local files, S3, GCP, Azure (CSV, JSON, XML, Parquet)
+- **Databases**: JDBC-compatible databases with SQL queries
+- **APIs**: RSS feeds, Kafka streams, custom REST endpoints
+- **Search engines**: Solr, OpenSearch (for re-indexing)
+
+### 2. Pipelines (Transformation)
+
+Pipelines consist of **Stages** that process and enrich Documents. Each stage performs a specific transformation:
+
+- Extract text from files (Tika, OCR)
+- Parse and normalize data
+- Generate embeddings (OpenAI, Ollama, Jlama)
+- Query external systems
+- Apply business logic
+
+### 3. Indexers (Destinations)
+
+Indexers send processed Documents to search engines and vector databases:
+
+- **Lucene-based**: Apache Solr, Elasticsearch, OpenSearch
+- **Vector databases**: Pinecone, Weaviate
+- **File output**: CSV, JSON for testing and validation
+
+## Simple Example
+
+Here's a complete Lucille configuration that reads a CSV file and indexes it to Solr:
+
+```hocon
+# Read CSV files
+connectors: [
+  {
+    class: "com.kmwllc.lucille.connector.FileConnector",
+    paths: ["conf/songs.csv"],
+    name: "connector1",
+    pipeline: "pipeline1"
+    fileHandlers: {
+      csv: { }
+    }
+  }
+]
+
+# Transform data (empty pipeline = no transformations)
+pipelines: [
+  {
+    name: "pipeline1",
+    stages: []
+  }
+]
+
+# Send to Solr
+indexer {
+  type: "Solr"
+}
+
+solr {
+  useCloudClient: true
+  defaultCollection: "quickstart"
+  url: ["http://localhost:8983/solr"]
+}
+```
+
+## Key Features
+
+### Multiple Search Engine Support
+
+Lucille abstracts away the differences between search engines, letting you focus on your data:
+
+- Apache Solr (Cloud and Standalone)
+- Elasticsearch
+- OpenSearch
+- Pinecone
+- Weaviate
+
+### Document Model
+
+Lucille represents data as **Documents** - the fundamental unit of search. Each Document:
+
+- Has a unique **ID**
+- Contains **fields** (single or multi-valued)
+- Supports common data types (String, Boolean, Integer, Double, Float, Long, Instant, byte[])
+- Can have **child documents** for nested data
+- Can be **dropped** from indexing based on conditions
+
+### Flexible Deployment
+
+<CardGroup cols={2}>
+  <Card title="Local Mode" icon="laptop">
+    All components run in a single JVM with in-memory queues - perfect for development and small datasets
+  </Card>
+  <Card title="Distributed Mode" icon="server">
+    Workers and Indexers run as separate processes communicating via Kafka - scales to handle massive data volumes
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+### Enterprise Search
+
+Index documents from file systems, databases, and content management systems to power enterprise search applications.
+
+### E-commerce Product Search
+
+Extract product data from databases, enrich with images and embeddings, and index to support faceted search and recommendations.
+
+### Log and Event Analytics
+
+Stream log data through Kafka, parse and normalize, then index to Elasticsearch for real-time monitoring and analytics.
+
+### Vector Search & RAG
+
+Generate embeddings from text documents and index to Pinecone or Weaviate to power semantic search and retrieval-augmented generation (RAG) applications.
+
+### Data Migration
+
+Re-index and transform existing search indexes when upgrading search engines or changing schema.
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Lucille running in 5 minutes with a simple CSV to Solr example
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Lucille and set up your development environment
+  </Card>
+</CardGroup>
+
+<Note>
+  Lucille is developed and maintained by [KMW Technology](https://kmwllc.com/), a search and machine learning consultancy with deep expertise in enterprise search solutions.
+</Note>
