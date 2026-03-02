@@ -1,0 +1,132 @@
+{
+  "projectType": "framework",
+  "projectName": "Lucille",
+  "projectDescription": "Production-grade Search ETL framework for extracting, transforming, and loading data into Lucene-based and vector search engines.",
+  "theme": "aspen",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/connectors",
+              "concepts/pipelines",
+              "concepts/stages",
+              "concepts/indexers",
+              "concepts/documents"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/connectors",
+              "configuration/pipelines",
+              "configuration/indexers",
+              "configuration/kafka"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/local-mode",
+              "deployment/distributed-mode",
+              "deployment/production"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/csv-to-solr",
+              "guides/s3-ingestion",
+              "guides/vector-search",
+              "guides/document-generation",
+              "guides/custom-stages"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Connectors",
+            "pages": [
+              "api/connectors/overview",
+              "api/connectors/file-connector",
+              "api/connectors/database-connector",
+              "api/connectors/kafka-connector",
+              "api/connectors/solr-connector",
+              "api/connectors/rss-connector"
+            ]
+          },
+          {
+            "group": "Stages",
+            "pages": [
+              "api/stages/overview",
+              "api/stages/text-processing",
+              "api/stages/data-transformation",
+              "api/stages/enrichment",
+              "api/stages/ai-ml"
+            ]
+          },
+          {
+            "group": "Indexers",
+            "pages": [
+              "api/indexers/overview",
+              "api/indexers/solr",
+              "api/indexers/opensearch",
+              "api/indexers/elasticsearch"
+            ]
+          },
+          {
+            "group": "Plugins",
+            "pages": [
+              "api/plugins/overview",
+              "api/plugins/tika",
+              "api/plugins/ocr",
+              "api/plugins/pinecone",
+              "api/plugins/weaviate"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Configuration-driven ETL pipelines for search engines",
+    "70+ built-in transformation stages",
+    "Support for Solr, Elasticsearch, OpenSearch, and vector databases",
+    "Distributed processing with Kafka",
+    "Pluggable architecture with extensible connectors and stages",
+    "Production-ready with metrics, observability, and error handling"
+  ],
+  "publicApiSurface": [
+    "com.kmwllc.lucille.core.Runner",
+    "com.kmwllc.lucille.core.Worker",
+    "com.kmwllc.lucille.core.Indexer",
+    "com.kmwllc.lucille.connector.FileConnector",
+    "com.kmwllc.lucille.connector.DatabaseConnector",
+    "com.kmwllc.lucille.connector.KafkaConnector",
+    "com.kmwllc.lucille.connector.SolrConnector",
+    "com.kmwllc.lucille.connector.RSSConnector",
+    "com.kmwllc.lucille.stage.*",
+    "com.kmwllc.lucille.indexer.SolrIndexer",
+    "com.kmwllc.lucille.indexer.OpenSearchIndexer",
+    "com.kmwllc.lucille.indexer.ElasticsearchIndexer"
+  ]
+}
